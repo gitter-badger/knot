@@ -1,3 +1,4 @@
+
 /*  Copyright (C) 2014 CZ.NIC, z.s.p.o. <knot-dns@labs.nic.cz>
 
     This program is free software: you can redistribute it and/or modify
@@ -41,24 +42,43 @@ static struct knot_request *request_make(mm_ctx_t *mm)
 }
 
 /*! \brief Ensure a socket is connected. */
-static int request_ensure_connected(struct knot_request *request)
+static int request_ensure_connected(struct knot_request *request, struct timeval *timeout)
 {
 	/* Connect the socket if not already connected. */
 	if (request->fd < 0) {
 		int sock_type = use_tcp(request) ? SOCK_STREAM : SOCK_DGRAM;
-		request->fd = net_connected_socket(sock_type, &request->remote, &request->origin, 0);
+		request->fd = net_connected_socket(sock_type, &request->remote, &request->origin, O_NONBLOCK);
 		if (request->fd < 0) {
 			return KNOT_ECONN;
 		}
+
+		/* Workaround for timeout, as we have no control over
+		 * connect() time limit in blocking mode. */
+		fd_set set;
+		FD_ZERO(&set);
+		FD_SET(request->fd, &set);
+		int ret = select(request->fd + 1, NULL, &set, NULL, timeout);
+		if (ret == 0) {
+			return KNOT_NET_ETIMEOUT;
+		}
+		if (ret < 0) {
+			return KNOT_NET_ECONNECT;
+		}
+
+		/* Return to blocking mode */
+		fcntl(request->fd, F_SETFL, 0);
 	}
 
 	return KNOT_EOK;
 }
 
-static int request_send(struct knot_request *request, struct timeval *timeout)
+static int request_send(struct knot_request *request, const struct timeval *timeout)
 {
+	/* Each request has unique timeout. */
+	struct timeval tv = *timeout;
+
 	/* Wait for writeability or error. */
-	int ret = request_ensure_connected(request);
+	int ret = request_ensure_connected(request, &tv);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
@@ -70,7 +90,7 @@ static int request_send(struct knot_request *request, struct timeval *timeout)
 
 	/* Send query. */
 	if (use_tcp(request)) {
-		ret = tcp_send_msg(request->fd, wire, wire_len, timeout);
+		ret = tcp_send_msg(request->fd, wire, wire_len, &tv);
 	} else {
 		ret = udp_send_msg(request->fd, wire, wire_len, NULL);
 	}
@@ -88,10 +108,10 @@ static int request_recv(struct knot_request *request,
 	knot_pkt_clear(resp);
 
 	/* Each request has unique timeout. */
-	struct timeval tv = { timeout->tv_sec, timeout->tv_usec };
+	struct timeval tv = *timeout;
 
 	/* Wait for readability */
-	int ret = request_ensure_connected(request);
+	int ret = request_ensure_connected(request, &tv);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
