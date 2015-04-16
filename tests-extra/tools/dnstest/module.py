@@ -92,3 +92,24 @@ class ModDnstap(KnotModule):
         conf.end()
 
         return conf
+
+class ModQueryStats(KnotModule):
+    '''Query_stats module'''
+
+    src_name = "query_stats_load"
+    conf_name = "mod-query-stats"
+
+    def __init__(self, file):
+        super().__init__()
+        self.file = file
+
+    def get_conf(self, conf=None):
+        if not conf:
+            conf = dnstest.config.KnotConf()
+
+        conf.begin(self.conf_name)
+        conf.id_item("id", self.conf_id)
+        conf.item_str("file", self.file)
+        conf.end()
+
+        return conf
