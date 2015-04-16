@@ -30,6 +30,7 @@
 
 #include "knot/modules/synth_record.h"
 #include "knot/modules/dnsproxy.h"
+#include "knot/modules/query_stats.h"
 #ifdef HAVE_ROSEDB
 #include "knot/modules/rosedb.h"
 #endif
@@ -184,6 +185,7 @@ const yp_item_t conf_scheme[] = {
 /* MODULES */
 	{ C_MOD_SYNTH_RECORD, YP_TGRP, YP_VGRP = { scheme_mod_synth_record }, YP_FMULTI },
 	{ C_MOD_DNSPROXY,     YP_TGRP, YP_VGRP = { scheme_mod_dnsproxy }, YP_FMULTI },
+	{ C_MOD_QUERY_STATS,  YP_TGRP, YP_VGRP = { scheme_mod_query_stats }, YP_FMULTI },
 #if HAVE_ROSEDB
 	{ C_MOD_ROSEDB,       YP_TGRP, YP_VGRP = { scheme_mod_rosedb }, YP_FMULTI },
 #endif

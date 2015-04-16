@@ -230,6 +230,8 @@ libknotd_la_SOURCES =				\
 	knot/modules/synth_record.h		\
 	knot/modules/dnsproxy.c			\
 	knot/modules/dnsproxy.h			\
+	knot/modules/query_stats.c		\
+	knot/modules/query_stats.h		\
 	knot/nameserver/axfr.c			\
 	knot/nameserver/axfr.h			\
 	knot/nameserver/capture.c		\

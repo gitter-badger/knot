@@ -5,6 +5,7 @@
 /* Compiled-in module headers. */
 #include "knot/modules/synth_record.h"
 #include "knot/modules/dnsproxy.h"
+#include "knot/modules/query_stats.h"
 #ifdef HAVE_ROSEDB
 #include "knot/modules/rosedb.h"
 #endif
@@ -22,6 +23,7 @@ typedef struct static_module {
 static_module_t MODULES[] = {
         { C_MOD_SYNTH_RECORD, &synth_record_load, &synth_record_unload },
         { C_MOD_DNSPROXY,     &dnsproxy_load,     &dnsproxy_unload },
+        { C_MOD_QUERY_STATS,  &query_stats_load,  &query_stats_unload },
 #ifdef HAVE_ROSEDB
         { C_MOD_ROSEDB,       &rosedb_load,       &rosedb_unload },
 #endif
