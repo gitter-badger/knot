@@ -34,6 +34,14 @@ const yp_item_t scheme_mod_query_stats[] = {
 	{ NULL }
 };
 
+struct query_stats_opcode {
+	uint64_t query;
+	uint64_t iquery;
+	uint64_t status;
+	uint64_t notify;
+	uint64_t update;
+};
+
 struct query_stats_rcode {
 	uint64_t ok;
 	uint64_t formerr;
@@ -64,6 +72,7 @@ struct query_stats_pkt_type {
 
 struct query_stats {
 	uint64_t query;
+	struct query_stats_opcode qso;
 	struct query_stats_rcode qsr;
 	struct query_stats_pkt_type qspt;
 };
@@ -72,6 +81,27 @@ struct query_stats_ctx {
 	const char *dump_file;
 	struct query_stats qs;
 };
+
+static void count_opcode(struct query_data *qdata, struct query_stats_opcode *qso)
+{
+	switch (knot_wire_get_opcode(qdata->query->wire)) {
+	case KNOT_OPCODE_QUERY:
+		qso->query++;
+		break;
+	case KNOT_OPCODE_IQUERY:
+		qso->iquery++;
+		break;
+	case KNOT_OPCODE_STATUS:
+		qso->status++;
+		break;
+	case KNOT_OPCODE_NOTIFY:
+		qso->notify++;
+		break;
+	case KNOT_OPCODE_UPDATE:
+		qso->update++;
+		break;
+	}
+}
 
 static void count_not_auth(struct query_data *qdata, struct query_stats_rcode *qsr)
 {
@@ -169,10 +199,22 @@ static int count(int state, knot_pkt_t *pkt, struct query_data *qdata, void *ctx
 
 	qs->query++;
 	
+	count_opcode(qdata, &qs->qso);
 	count_rcode(qdata, &qs->qsr);
 	count_pkt_type(qdata, &qs->qspt);
 
 	return KNOT_STATE_DONE;
+}
+
+static json_t *build_json_opcode_stats(struct query_stats_opcode *qso)
+{
+	json_t *opcode_stats = json_pack("{s:i s:i s:i s:i s:i}",
+	                                   "query",   qso->query,
+	                                   "iquery",  qso->iquery,
+	                                   "status",  qso->status,
+	                                   "notify",  qso->notify,
+	                                   "update",  qso->update);
+	return opcode_stats;
 }
 
 static json_t *build_json_rcode_stats(struct query_stats_rcode *qsr)
@@ -214,10 +256,12 @@ static json_t *build_json_pkt_type_stats(struct query_stats_pkt_type *qspt)
 static json_t *build_json_stats(struct query_stats *qs)
 {
 	json_t *root = json_object();
-	json_t *rcodes = build_json_rcode_stats(&qs->qsr);
-	json_object_set_new(root, "rcodes", rcodes);
+	json_t *opcodes = build_json_opcode_stats(&qs->qso);
+	json_object_set_new(root, "opcodes", opcodes);
 	json_t *pkt_types = build_json_pkt_type_stats(&qs->qspt);
 	json_object_set_new(root, "packet types", pkt_types);
+	json_t *rcodes = build_json_rcode_stats(&qs->qsr);
+	json_object_set_new(root, "rcodes", rcodes);
 
 	return root;
 }
