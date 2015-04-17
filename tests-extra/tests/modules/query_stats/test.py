@@ -31,11 +31,13 @@ resp = knot.dig(dflt_qname + ".example", "NS")
 flags_qname = "query_stats_flags_test"
 resp = knot.dig(flags_qname + ".flags", "NS")
 
+resp = knot.dig("flags", "SOA", udp=True)
+
 knot.stop()
 
 # Check if query_stats dumps exist.
-#isset(os.path.isfile(dflt_dump), "default dump")
-#isset(os.path.isfile(flags_dump), "zone dump")
+isset(os.path.isfile(dflt_dump), "default dump")
+isset(os.path.isfile(flags_dump), "zone dump")
 
 def dump_contains(dump, qname):
     '''Checks the sink if contains QNAME'''
