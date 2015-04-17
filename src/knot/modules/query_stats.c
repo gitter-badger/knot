@@ -15,6 +15,7 @@
  */
 
 #include <stdio.h>
+#include <jansson.h>
 
 #include "libknot/libknot.h"
 #include "knot/common/log.h"
@@ -174,6 +175,63 @@ static int count(int state, knot_pkt_t *pkt, struct query_data *qdata, void *ctx
 	return KNOT_STATE_DONE;
 }
 
+static json_t *build_json_rcode_stats(struct query_stats_rcode *qsr)
+{
+	json_t *rcode_stats = json_pack("{s:i s:i s:i s:i s:i s:i s:i s:i " \
+	                                "s:i s:i s:i s:i s:i s:i s:i s:i}",
+	                                "ok",            qsr->ok,
+	                                "formerr",       qsr->formerr,
+	                                "servfail",      qsr->servfail,
+	                                "nxdomain",      qsr->nxdomain,
+	                                "notimpl",       qsr->notimpl,
+	                                "refused",       qsr->refused,
+	                                "yxdomain",      qsr->yxdomain,
+	                                "yxrrset",       qsr->yxrrset,
+	                                "nxrrset",       qsr->nxrrset,
+	                                "notauth",       qsr->notauth,
+	                                "notzone",       qsr->notzone,
+	                                "badvers",       qsr->badvers,
+	                                "tsig_badsig",   qsr->tsig_badsig,
+	                                "tsig_badkey",   qsr->tsig_badkey,
+	                                "tsig_badtime",  qsr->tsig_badtime,
+	                                "tsig_badtrunc", qsr->tsig_badtrunc);
+
+	return rcode_stats;
+}
+
+static json_t *build_json_pkt_type_stats(struct query_stats_pkt_type *qspt)
+{
+	json_t *pkt_type_stats = json_pack("{s:i s:i s:i s:i s:i s:i}",
+	                                   "invalid", qspt->invalid,
+	                                   "normal",  qspt->normal,
+	                                   "axfr",    qspt->axfr,
+	                                   "ixfr",    qspt->ixfr,
+	                                   "notify",  qspt->notify,
+	                                   "update",  qspt->update);
+	return pkt_type_stats;
+}
+
+static json_t *build_json_stats(struct query_stats *qs)
+{
+	json_t *root = json_object();
+	json_t *rcodes = build_json_rcode_stats(&qs->qsr);
+	json_object_set_new(root, "rcodes", rcodes);
+	json_t *pkt_types = build_json_pkt_type_stats(&qs->qspt);
+	json_object_set_new(root, "packet types", pkt_types);
+
+	return root;
+}
+
+static void dump_json_stats(struct query_stats_ctx *qsc)
+{
+	struct query_stats *qs = &qsc->qs;
+
+	json_t *root = build_json_stats(qs);
+
+	json_dump_file(root, qsc->dump_file, JSON_INDENT(4) | JSON_PRESERVE_ORDER);
+	json_decref(root);
+}
+
 int query_stats_load(struct query_plan *plan, struct query_module *self)
 {
 	struct query_stats_ctx *qsc = mm_alloc(self->mm, sizeof(struct query_stats_ctx));
@@ -199,12 +257,8 @@ int query_stats_load(struct query_plan *plan, struct query_module *self)
 int query_stats_unload(struct query_module *self)
 {
 	struct query_stats_ctx *qsc = self->ctx;
-	struct query_stats *qs = &qsc->qs;
 
-	FILE *f = fopen(qsc->dump_file, "w");
-	fprintf(f, "Queries: %lu\n", qs->query);
-	fclose(f);
-	//printf("Queries: %lu\n", ((struct query_stats*) self->ctx)->queries);
+	dump_json_stats(qsc);
 
 	mm_free(self->mm, self->ctx);
 	return KNOT_EOK;
