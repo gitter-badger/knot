@@ -10,9 +10,8 @@
 
 #undef LOCAL_DEBUG
 
-#include "libknot/internal/mem.h"
 #include "libknot/internal/mempool.h"
-#include "libknot/internal/mempattern.h"
+ #include "libknot/internal/mempool.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -28,7 +27,7 @@
 #define MP_SIZE_MAX (~0U - MP_CHUNK_TAIL - CPU_PAGE_SIZE)
 #ifndef MAX
 #define MAX(a, b) \
-	({ typeof (a) _a = (a); typeof (b) _b = (b); _a > _b ? _a : _b; })
+	({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a > _b ? _a : _b; })
 #endif
 #define DBG(s...)
 
@@ -88,8 +87,10 @@ static void *
 mp_new_big_chunk(unsigned size)
 {
   struct mempool_chunk *chunk;
-  chunk = xmalloc(size + MP_CHUNK_TAIL) + size;
-  chunk->size = size;
+  chunk = malloc(size + MP_CHUNK_TAIL) + size;
+  if (chunk) {
+    chunk->size = size;
+  }
   return chunk;
 }
 
@@ -241,6 +242,9 @@ mp_alloc_internal(struct mempool *pool, unsigned size)
       pool->idx = 1;
       unsigned aligned = ALIGN_TO(size, CPU_STRUCT_ALIGN);
       chunk = mp_new_big_chunk(aligned);
+      if (!chunk) {
+        return NULL;
+      }
       chunk->next = pool->state.last[1];
       pool->state.last[1] = chunk;
       pool->state.free[1] = aligned - size;
@@ -308,7 +312,10 @@ mp_grow_internal(struct mempool *pool, unsigned size)
       amortized = MAX(amortized, size);
       amortized = ALIGN_TO(amortized, CPU_STRUCT_ALIGN);
       struct mempool_chunk *chunk = pool->state.last[1], *next = chunk->next;
-      ptr = xrealloc(ptr, amortized + MP_CHUNK_TAIL);
+      ptr = realloc(ptr, amortized + MP_CHUNK_TAIL);
+      if (!ptr) {
+        return NULL;
+      }
       chunk = ptr + amortized;
       chunk->next = next;
       chunk->size = amortized;

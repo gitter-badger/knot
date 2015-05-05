@@ -22,6 +22,7 @@
 #include "libknot/internal/lists.h"
 #include "libknot/internal/sockaddr.h"
 #include "libknot/internal/mempattern.h"
+#include "libknot/rrtype/tsig.h"
 
 struct knot_request;
 
