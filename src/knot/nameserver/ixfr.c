@@ -14,6 +14,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <urcu.h>
+
 #include "knot/nameserver/ixfr.h"
 #include "knot/nameserver/axfr.h"
 #include "knot/nameserver/internet.h"
@@ -156,7 +158,7 @@ static int ixfr_process_changeset(knot_pkt_t *pkt, const void *item,
 	struct query_data *qdata = ixfr->qdata; /*< Required for IXFROUT_LOG() */
 	const uint32_t serial_from = knot_soa_serial(&chgset->soa_from->rrs);
 	const uint32_t serial_to = knot_soa_serial(&chgset->soa_to->rrs);
-	IXFROUT_LOG(LOG_INFO, "serial %u -> %u", serial_from, serial_to);
+	IXFROUT_LOG(LOG_DEBUG, "serial %u -> %u", serial_from, serial_to);
 
 	return ret;
 }
@@ -164,7 +166,7 @@ static int ixfr_process_changeset(knot_pkt_t *pkt, const void *item,
 #undef IXFR_SAFE_PUT
 
 /*! \brief Loads IXFRs from journal. */
-static int ixfr_load_chsets(list_t *chgsets, zone_t *zone,
+static int ixfr_load_chsets(list_t *chgsets, const zone_t *zone,
                             const knot_rrset_t *their_soa)
 {
 	assert(chgsets);
@@ -177,23 +179,28 @@ static int ixfr_load_chsets(list_t *chgsets, zone_t *zone,
 	if (ret <= 0) { /* We have older/same age zone. */
 		return KNOT_EUPTODATE;
 	}
-	
-	ret = zone_init_journal(zone);
+
+	conf_val_t val = conf_zone_get(conf(), C_IXFR_FSLIMIT, zone->name);
+	int64_t ixfr_fslimit = conf_int(&val);
+	char *path = conf_journalfile(conf(), zone->name);
+
+	ret = zone_init_journal((zone_t *)zone, path, ixfr_fslimit);
 	if (ret != KNOT_EOK) {
-		return ret;
-	}
-	
-	pthread_mutex_lock(&zone->journal_lock);
-	ret = journal_load_changesets(zone->journal, zone->name, chgsets, serial_from);
-	pthread_mutex_unlock(&zone->journal_lock);
-	
-	if (ret != KNOT_EOK) {
-		changesets_free(chgsets);
-		zone_deinit_journal(zone);
 		return ret;
 	}
 
-	return zone_deinit_journal(zone);
+	pthread_mutex_lock((pthread_mutex_t *)&zone->journal_lock);
+	ret = journal_load_changesets(zone->journal, zone->name, chgsets, serial_from);
+	pthread_mutex_unlock((pthread_mutex_t *)&zone->journal_lock);
+	free(path);
+
+	if (ret != KNOT_EOK) {
+		changesets_free(chgsets);
+		zone_deinit_journal((zone_t *)zone);
+		return ret;
+	}
+
+	return zone_deinit_journal((zone_t *)zone);
 }
 
 
@@ -216,7 +223,7 @@ static int ixfr_query_check(struct query_data *qdata)
 	NS_NEED_QNAME(qdata, their_soa->owner, KNOT_RCODE_FORMERR);
 
 	/* Check transcation security and zone contents. */
-	NS_NEED_AUTH(&qdata->zone->conf->acl.xfr_out, qdata);
+	NS_NEED_AUTH(qdata, qdata->zone->name, ACL_ACTION_XFER);
 	NS_NEED_ZONE_CONTENTS(qdata, KNOT_RCODE_SERVFAIL); /* Check expiration. */
 
 	return KNOT_STATE_DONE;
@@ -315,7 +322,7 @@ static int ixfr_answer_soa(knot_pkt_t *pkt, struct query_data *qdata)
 	}
 
 	/* Reserve space for TSIG. */
-	knot_pkt_reserve(pkt, knot_tsig_wire_maxsize(qdata->sign.tsig_key));
+	knot_pkt_reserve(pkt, knot_tsig_wire_maxsize(&qdata->sign.tsig_key));
 
 	/* Guaranteed to have zone contents. */
 	const zone_node_t *apex = qdata->zone->contents->apex;
@@ -646,7 +653,7 @@ int ixfr_query(knot_pkt_t *pkt, struct query_data *qdata)
 	}
 
 	/* Reserve space for TSIG. */
-	knot_pkt_reserve(pkt, knot_tsig_wire_maxsize(qdata->sign.tsig_key));
+	knot_pkt_reserve(pkt, knot_tsig_wire_maxsize(&qdata->sign.tsig_key));
 
 	/* Answer current packet (or continue). */
 	ret = xfr_process_list(pkt, &ixfr_process_changeset, qdata);

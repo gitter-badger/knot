@@ -110,6 +110,7 @@
 		s->item_length_position = s->dname_tmp_length++;
 	}
 	action _label_char {
+		// Check for maximum dname label length.
 		if (s->item_length < MAX_LABEL_LENGTH) {
 			(s->dname)[s->dname_tmp_length++] = fc;
 			s->item_length++;
@@ -119,6 +120,8 @@
 		}
 	}
 	action _label_exit {
+		// Check for maximum dname length overflow after each label.
+		// (at least the next label length must follow).
 		if (s->dname_tmp_length < MAX_DNAME_LENGTH) {
 			(s->dname)[s->item_length_position] =
 				(uint8_t)(s->item_length);
@@ -164,21 +167,24 @@
 
 	# BEGIN - Domain name processing.
 	action _absolute_dname_exit {
+		// Enough room for the terminal label is garanteed (_label_exit).
 		(s->dname)[s->dname_tmp_length++] = 0;
 	}
 	action _relative_dname_exit {
-		memcpy(s->dname + s->dname_tmp_length,
-		       s->zone_origin,
-		       s->zone_origin_length);
+		// Check for (relative + origin) dname length overflow.
+		if (s->dname_tmp_length + s->zone_origin_length <= MAX_DNAME_LENGTH) {
+			memcpy(s->dname + s->dname_tmp_length,
+			       s->zone_origin,
+			       s->zone_origin_length);
 
-		s->dname_tmp_length += s->zone_origin_length;
-
-		if (s->dname_tmp_length > MAX_DNAME_LENGTH) {
+			s->dname_tmp_length += s->zone_origin_length;
+		} else {
 			WARN(ZS_DNAME_OVERFLOW);
 			fhold; fgoto err_line;
 		}
 	}
 	action _origin_dname_exit {
+		// Copy already verified zone origin.
 		memcpy(s->dname,
 		       s->zone_origin,
 		       s->zone_origin_length);
@@ -207,7 +213,12 @@
 
 	# BEGIN - Common r_data item processing
 	action _item_length_init {
-		s->item_length_location = rdata_tail++;
+		if (rdata_tail <= rdata_stop) {
+			s->item_length_location = rdata_tail++;
+		} else {
+			WARN(ZS_RDATA_OVERFLOW);
+			fhold; fgoto err_line;
+		}
 	}
 	action _item_length_exit {
 		s->item_length = rdata_tail - s->item_length_location - 1;
@@ -496,6 +507,20 @@
 	# BEGIN - Text processing
 	action _text_char {
 		if (rdata_tail <= rdata_stop) {
+			// Split long string.
+			if (s->long_string &&
+			    rdata_tail - s->item_length_location == 1 + MAX_ITEM_LENGTH) {
+				// _item_length_exit equivalent.
+				*(s->item_length_location) = MAX_ITEM_LENGTH;
+				// _item_length_init equivalent.
+				s->item_length_location = rdata_tail++;
+
+				if (rdata_tail > rdata_stop) {
+					WARN(ZS_TEXT_OVERFLOW);
+					fhold; fgoto err_line;
+				}
+			}
+
 			*(rdata_tail++) = fc;
 		} else {
 			WARN(ZS_TEXT_OVERFLOW);
@@ -513,6 +538,20 @@
 
 	action _text_dec_init {
 		if (rdata_tail <= rdata_stop) {
+			// Split long string.
+			if (s->long_string &&
+			    rdata_tail - s->item_length_location == 1 + MAX_ITEM_LENGTH) {
+				// _item_length_exit equivalent.
+				*(s->item_length_location) = MAX_ITEM_LENGTH;
+				// _item_length_init equivalent.
+				s->item_length_location = rdata_tail++;
+
+				if (rdata_tail > rdata_stop) {
+					WARN(ZS_TEXT_OVERFLOW);
+					fhold; fgoto err_line;
+				}
+			}
+
 			*rdata_tail = 0;
 			s->item_length++;
 		} else {
@@ -563,8 +602,17 @@
 	# Text string with forward 1-byte length.
 	text_string = text >_item_length_init %_item_length_exit;
 
+	action _text_array_init {
+		s->long_string = true;
+	}
+	action _text_array_exit {
+		s->long_string = false;
+	}
+
 	# Text string array as one rdata item.
-	text_array = (text_string . (sep . text_string)* . sep?);
+	text_array =
+		( (text_string . (sep . text_string)* . sep?)
+		) >_text_array_init %_text_array_exit $!_text_array_exit;
 	# END
 
 	# BEGIN - TTL directive processing

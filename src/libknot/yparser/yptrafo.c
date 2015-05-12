@@ -79,11 +79,11 @@ static int yp_str_to_txt(
 static int yp_bool_to_bin(
 	TXT_BIN_PARAMS)
 {
-	if (strcasecmp(txt, "on") == 0) {
+	if (strcasecmp(txt, "on") == 0 || strcasecmp(txt, "true") == 0) {
 		bin[0] = '\0'; // Just in case.
 		*bin_len = 1;
 		return KNOT_EOK;
-	} else if (strcasecmp(txt, "off") == 0) {
+	} else if (strcasecmp(txt, "off") == 0 || strcasecmp(txt, "false") == 0) {
 		*bin_len = 0;
 		return KNOT_EOK;
 	}
@@ -314,7 +314,7 @@ static int addr_to_bin(
 		addr = &(addr6.s6_addr);
 	} else if (allow_unix && txt_len > 0) {
 		type = 0;
-		addr_len = txt_len;
+		addr_len = txt_len + 1; // + trailing zero.
 		addr = txt;
 	} else {
 		return KNOT_EINVAL;
@@ -344,7 +344,7 @@ static int addr_to_txt(
 	int ret;
 	switch (type) {
 	case 0:
-		ret = snprintf(txt, *txt_len, "%.*s", (int)bin_len, bin);
+		ret = snprintf(txt, *txt_len, "%s", bin);
 		if (ret <= 0 || ret >= *txt_len) {
 			return KNOT_ESPACE;
 		}

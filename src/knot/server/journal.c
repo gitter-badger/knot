@@ -23,7 +23,6 @@
 #include "libknot/internal/macros.h"
 
 
-
 /* On the topic of JOURNAL_DROP_FLUSH:
  * mdb_drop is only slightly faster than deleting every record 
  * individually, yet may postpone freeing pages. Thus, deleting the 

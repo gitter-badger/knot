@@ -1,8 +1,8 @@
 #                                               -*- Autoconf -*-
 
 AC_PREREQ([2.60])
-AC_INIT([knot], [1.99.1], [knot-dns@labs.nic.cz])
-AM_INIT_AUTOMAKE([gnits subdir-objects dist-xz -Wall -Werror])
+AC_INIT([knot], [2.0.0-beta], [knot-dns@labs.nic.cz])
+AM_INIT_AUTOMAKE([gnits subdir-objects no-dist-gzip dist-xz -Wall -Werror])
 AM_SILENT_RULES([yes])
 AC_CONFIG_SRCDIR([src/knot/main.c])
 AC_CONFIG_HEADERS([src/config.h])
@@ -12,9 +12,7 @@ AC_CANONICAL_HOST
 AX_SET_VERSION_INFO
 
 # Automatically update release date based on configure.ac date
-AS_CASE([$host_os],
-    [linux*],[release_date=`date +"%Y-%m-%d" -r configure.ac`],
-    [*],[release_date=$(date -r "$(stat -f %m configure.ac)" +"%Y-%m-%d")])
+release_date=$(sed -n 's/^Knot DNS .* (\(.*\))/\1/p;q;' ${srcdir}/NEWS)
 AC_SUBST([RELEASE_DATE], $release_date)
 
 # Set compiler compatibility flags
@@ -167,40 +165,6 @@ AC_SUBST(config_dir)
 #########################################
 # Dependencies needed for Knot DNS daemon
 #########################################
-AS_IF([test "$enable_daemon" = "yes"],[
-
-AC_CACHE_CHECK([for reentrant lex], [ac_cv_path_LEX],
-  [AC_PATH_PROGS_FEATURE_CHECK([LEX], [$LEX flex gflex],
-  [cat >conftest.l <<_ACEOF
-%{
-%}
-
-%option reentrant
-%option bison-bridge
-%option noinput
-%option nounput
-%option noreject
-
-BLANK [ \t\n]
-
-%%
-<<EOF>> return 0;
-%%
-_ACEOF
-_AC_DO_VAR(ac_path_LEX conftest.l)
-test $ac_status -eq 0 && ac_cv_path_LEX=$ac_path_LEX ac_path_LEX_found=true
-rm -f conftest.l lexyy.c lex.yy.c
-],
-[AC_MSG_ERROR([could not find lex that supports reentrant parsers])])])
-AC_SUBST([LEX], [$ac_cv_path_LEX])
-AM_PROG_LEX
-
-AC_PROG_YACC
-YACC_BISON=`bison --version | awk '{print $1;exit}'`
-AS_IF([test "x$YACC_BISON" != "xbison"],
-    [AC_MSG_ERROR([GNU bison needed for reentrant parsers, set the \$YACC variable before running configure])])
-
-])
 
 # Systemd integration
 AC_ARG_ENABLE([systemd],
@@ -209,7 +173,7 @@ AC_ARG_ENABLE([systemd],
 
 AS_IF([test "$enable_daemon" = "yes"],[
 
-AS_IF([test "$enable_system" != "no"],[
+AS_IF([test "$enable_systemd" != "no"],[
   AS_CASE([$enable_systemd],
     [auto],[PKG_CHECK_MODULES([systemd], [libsystemd-daemon libsystemd-journal], [enable_systemd=yes], [enable_systemd=no])],
     [yes],[PKG_CHECK_MODULES([systemd], [libsystemd-daemon libsystemd-journal])],
@@ -299,9 +263,9 @@ AS_IF([test "$with_lmdb" != "no"],[
     save_LIBS=$LIBS
     for try_lmdb in "$with_lmdb" "" "/usr/local"; do
 
-      AS_IF([test -d "$try_openssl"], [
-        lmdb_CFLAGS="-I$with_lmdb/include"
-        lmdb_LIBS=""
+      AS_IF([test -d "$try_lmdb"], [
+        lmdb_CFLAGS="-I$try_lmdb/include"
+        lmdb_LIBS="-L$try_lmdb/lib"
         ],[
         lmdb_CFLAGS=""
         lmdb_LIBS=""
@@ -427,27 +391,16 @@ AM_CONDITIONAL([HAVE_MAKEINFO], test "$MAKEINFO" != "false")
 
 AC_CONFIG_FILES([Makefile
 		 doc/Makefile
-		 man/Makefile
 		 samples/Makefile
-		 patches/Makefile
 		 libtap/Makefile
 		 src/Makefile
 		 tests/Makefile
+		 tests-fuzz/Makefile
 		 src/dnstap/Makefile
 		 src/zscanner/Makefile
 		 src/dnssec/Makefile
-		 src/dnssec/man/Makefile
-		 src/dnssec/man/keymgr.8
-		 src/dnssec/man/knsec3hash.1
 		 src/dnssec/tests/Makefile
 		 src/dnssec/utils/Makefile
-		 doc/conf.py
-		 man/khost.1
-		 man/knotc.8
-		 man/knotd.8
-		 man/kdig.1
-		 man/knsupdate.1
-		 man/knot.conf.5
 		 ])
 
 AC_OUTPUT

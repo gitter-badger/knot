@@ -55,8 +55,7 @@ static int request_ensure_connected(struct knot_request *request)
 	return KNOT_EOK;
 }
 
-static int request_send(struct knot_request *request,
-                        const struct timeval *timeout)
+static int request_send(struct knot_request *request, struct timeval *timeout)
 {
 	/* Wait for writeability or error. */
 	int ret = request_ensure_connected(request);
@@ -71,7 +70,7 @@ static int request_send(struct knot_request *request,
 
 	/* Send query. */
 	if (use_tcp(request)) {
-		ret = tcp_send_msg(request->fd, wire, wire_len);
+		ret = tcp_send_msg(request->fd, wire, wire_len, timeout);
 	} else {
 		ret = udp_send_msg(request->fd, wire, wire_len, NULL);
 	}
@@ -149,7 +148,9 @@ struct knot_request *knot_request_make(mm_ctx_t *mm,
 _public_
 int knot_request_free(mm_ctx_t *mm, struct knot_request *request)
 {
-	close(request->fd);
+	if (request->fd >= 0) {
+		close(request->fd);
+	}
 	knot_pkt_free(&request->query);
 	knot_pkt_free(&request->resp);
 
@@ -254,6 +255,7 @@ static int request_io(struct knot_requestor *req, struct knot_request *last,
 			return ret;
 		}
 
+		(void) knot_pkt_parse(query, 0);
 		knot_overlay_consume(&req->overlay, resp);
 	}
 
@@ -275,7 +277,7 @@ static int exec_request(struct knot_requestor *req, struct knot_request *last,
 	}
 
 	/* Expect complete request. */
-	if (req->overlay.state == KNOT_STATE_FAIL) {
+	if (req->overlay.state != KNOT_STATE_DONE) {
 		ret = KNOT_LAYER_ERROR;
 	}
 

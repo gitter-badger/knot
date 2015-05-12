@@ -39,6 +39,8 @@
 #define CLEAR_PAGE_NO   24
 
 
+const unsigned NAMEDB_LMDB_NOTLS = MDB_NOTLS;
+
 struct lmdb_env
 {
 	bool shared;

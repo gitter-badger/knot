@@ -79,6 +79,7 @@ int journal_close(journal_t **journal);
  * \brief Load changesets from journal.
  *
  * \param path Path to journal file.
+ * \param zone_name Corresponding zone name.
  * \param dst Store changesets here.
  * \param from Start serial.
  * \param to End serial.

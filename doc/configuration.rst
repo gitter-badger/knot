@@ -1,349 +1,563 @@
-.. meta::
-   :description: reStructuredText plaintext markup language
+.. _Configuration:
 
-**********************
-Knot DNS Configuration
-**********************
+*************
+Configuration
+*************
 
-In this chapter we provide suggested configurations and explain the
-meaning of individual configuration options.
+Simple configuration
+====================
 
-Minimal configuration
-=====================
-
-The following configuration presents a minimal configuration file
+The following configuration presents a simple configuration file
 which can be used as a base for your Knot DNS setup::
 
-    interfaces {
-        all_ipv4 {
-            address 0.0.0.0;
-            port 53;
-        }
-        all_ipv6 {
-            address [::];
-            port 53;
-        }
-    }
+    # Example of a very simple Knot DNS configuration.
 
-    zones {
-        example.com {
-            file "/etc/knot/example.com";
-        }
-    }
+    server:
+        listen: 0.0.0.0@53
+        listen: ::@53
 
-    log {
-        syslog { any info; }
-    }
+    zone:
+      - domain: example.com
+        storage: /var/lib/knot/zones/
+        file: example.com.zone
 
-Now let's go step by step through this minimal configuration file:
+    log:
+      - to: syslog
+        any: info
 
-* The ``interfaces`` statement defines interfaces where Knot
-  DNS will listen for incoming connections. We have defined two
-  interfaces: one IPv4 called ``all_ipv4`` explicitly listening
-  on port 53 and second IPv6 called ``all_ipv6`` also listening on
-  port 53, which is the default port for the DNS. See :ref:`interfaces`.
-* The ``log`` statement defines the log facilities for Knot DNS.
-  In this example we told Knot DNS to send its log messages with the severity
-  ``info`` or more serious to the syslog.
-  If you omit this sections, all severities will be printed
-  either to ``stdout`` or ``stderr``, and the severities
-  from the ``warning`` and more serious to syslog. You can find all
-  possible combinations in the :ref:`log`.
-* The ``zones`` statement is probably the most important one,
-  because it defines the zones that Knot DNS will serve.  In its most simple
-  form you can define a zone by its name and zone file.
+Now let's go step by step through this configuration:
 
-Slave configuration
-===================
+- The :ref:`server_listen` statement in the :ref:`server section<Server section>`
+  defines where the server will listen for incoming connections.
+  We have defined the server to listen on all available IPv4 and IPv6 addresses
+  all on port 53.
+- The :ref:`zone section<Zone section>` defines the zones that the server will
+  serve. In this case we defined one zone named *example.com* which is stored
+  in the zone file :file:`/var/lib/knot/zones/example.com.zone`.
+- The :ref:`log section<Logging section>` defines the log facilities for
+  the server. In this example we told Knot DNS to send its log messages with
+  the severity ``info`` or more serious to the syslog.
 
-Knot DNS doesn't strictly differ between master and slave zones.  The
-only requirement is to have ``xfr-in`` ``zones`` statement set for
-given zone, thus allowing both incoming XFR from that remote and using
-it as the zone master. If ``update-in`` is set and zone has a master,
-any accepted DNS UPDATE will be forwarded to master.  Also note that
-you need to explicitly allow incoming NOTIFY, otherwise the daemon
-would reject them.  Also, you can specify paths, relative to the
-storage directory.  See :ref:`zones` and :ref:`storage`.  If the zone
-file doesn't exist and ``xfr-in`` is set, it will be bootstrapped over
-AXFR::
+For detailed description of all configuration items see
+:ref:`Configuration Reference`.
 
-    remotes {
-      master { address 127.0.0.1@53; }
-      subnet1 { address 192.168.1.0/24; }
-    }
+Zone templates
+==============
 
-    zones {
-      example.com {
-        file "example.com"; # relative to 'storage'
-        xfr-in master;      # define 'master' for this zone
-        notify-in master;   # also allow NOTIFY from 'master'
-        update-in subnet1;  # accept UPDATE msgs from subnet1 and forward
-                            # to master
-      }
-    }
+A zone template allows single zone configuration to be shared among more zones.
+Each template option can be explicitly overridden in the zone configuration.
+A ``default`` template identifier is reserved for the default template::
 
-Note that the ``xfr-in`` option accepts a list of multiple remotes.
-The first remote in the list is used as a primary master, and the rest is used
-for failover should the connection with the primary master fail.
+    template:
+      - id: default
+        storage: /var/lib/knot/master
+        semantic-checks: on
+
+      - id: signed
+        storage: /var/lib/knot/signed
+        dnssec-enable: on
+        semantic-checks: on
+
+      - id: slave
+        storage: /var/lib/knot/slave
+
+    zone:
+      - domain: example1.com     # Uses default template
+
+      - domain: example2.com     # Uses default template
+        semantic-checks: off     # Override default settings
+
+      - domain: example.cz
+        template: signed
+
+      - domain: example1.eu
+        template: slave
+        master: master1
+
+      - domain: example2.eu
+        template: slave
+        master: master2
+
+Access control list (ACL)
+=========================
+
+ACL list specifies which remotes are allowed to send the server a specific
+query or do a specific action. A remote can be a single IP address or a
+network subnet. Also a TSIG key can be specified::
+
+    acl:
+      - id: single_rule
+        address: 192.168.1.1      # Single IP address
+        action: [notify, update]  # Allow zone notifications and updates zone
+
+      - id: subnet_rule
+        address: 192.168.2.0/24   # Network subnet
+        action: xfer              # Allow zone transfers
+
+      - id: deny_rule
+        address: 192.168.2.100    # Negative match
+        action: deny              # The remote query is denied
+
+      - id: key_rule
+        key: key1                 # Access based just on TSIG key
+        action: xfer
+
+Then the rules are referenced from zone :ref:`template_acl` or from
+control :ref:`control_acl`::
+
+    zone:
+      - domain: example.com
+        acl: [single_rule, deny_rule, subnet_rule, key_rule]
+
+Slave zone
+==========
+
+Knot DNS doesn't strictly differ between master and slave zones. The
+only requirement is to have :ref:`master<template_master>` statement set for
+the given zone. Also note that you need to explicitly allow incoming zone
+changed notifications via ``notify`` :ref:`acl_action` through zone's
+:ref:`template_acl` list, otherwise the update will be rejected by the server.
+If the zone file doesn't exist it will be bootstrapped over AXFR::
+
+    remote:
+      - id: master
+        address: 192.168.1.1@53
+
+    acl:
+      - id: master_acl
+        address: 192.168.1.1
+        action: notify
+
+    zone:
+      - domain: example.com
+        storage: /var/lib/knot/zones/
+        # file: example.com.zone   # Default value
+        master: master
+        acl: master_acl
+
+Note that the :ref:`template_master` option accepts a list of multiple remotes.
+The first remote in the list is used as the primary master, and the rest is used
+for failover if the connection with the primary master fails.
 The list is rotated in this case, and a new primary is elected.
 The preference list is reset on the configuration reload.
 
-You can also use TSIG for access control. For this, you need to configure a TSIG key
-and assign it to a remote.  Supported algorithms for TSIG key are:
-``hmac-md5``, ``hmac-sha1``, ``hmac-sha224``, ``hmac-sha256``, ``hmac-sha384``,
-and ``hmac-sha512``. Key secret is written in a base64 encoded format.
-As of now, it is not possible to associate multiple keys with a remote.
-See :ref:`keys`::
+To use TSIG for transfer authentication, configure a TSIG key and assign the
+key to the remote. If the notifications are used, the same key should be
+configured in a proper ACL rule::
 
-    keys {
-      key0 hmac-md5 "Wg=="; # keyname algorithm secret
-    }
-    remotes {
-      master { address 127.0.0.1@53; key key0; }
-    }
-    zones {
-      example.com {
-        file "example.com"; # relative to 'storage'
-        xfr-in master;      # define 'master' for this zone
-        notify-in master;   # also allow NOTIFY from 'master'
-      }
-    }
+    key:
+      - id: slave1_key
+        algorithm: hmac-md5
+        secret: Wg==
 
-If Knot DNS is compiled with the LMDB library, the server will be able to
-preserve slave zone timers across full server restarts. The zone expire,
-refresh, and flush timers are stored in a file-backed database in the
-:ref:`storage` directory in the ``timers`` subdirectory.
+    remote:
+      - id: master
+        address: 192.168.1.1@53
+        key: slave1_key
 
-Master configuration
-====================
+    acl:
+      - id: master_acl
+        address: 192.168.1.1
+        key: slave1_key
+        action: notify
 
-You can specify which remotes to allow for outgoing XFR and NOTIFY ``zones``::
+Master zone
+===========
 
-    remotes {
-      slave { address 127.0.0.1@53; }
-      any { address 0.0.0.0/0; }
-      subnet1 { address 192.168.1.0/8; }
-      subnet2 { address 192.168.2.0/8; }
-    }
-    zones {
-      example.com {
-        file "/var/zones/example.com";
-        xfr-out subnet1, subnet2; # allow outgoing transfers
-        notify-out slave;
-        update-in subnet1; # only allow DNS UPDATE from subnet1
-      }
-    }
+An ACL with the ``xfer`` action must be configured to allow outgoing zone
+transfers. An ACL rule consists of a single address or a network subnet::
 
-You can also secure outgoing XFRs with TSIG::
+    remote:
+      - id: slave1
+        address: 192.168.2.1@53
 
-    keys {
-      key0 hmac-md5 "Wg=="; # keyname algorithm secret
-    }
-    remotes {
-      any { address 0.0.0.0/0; key key0; }
-    }
-    zones {
-      example.com {
-        file "/var/zones/example.com";
-        xfr-out any; # uses 'any' remote secured with TSIG key 'key0'
-      }
-    }
+    acl:
+      - id: slave1_acl
+        address: 192.168.2.1
+        action: xfer
 
-Configuring multiple interfaces
-===============================
+      - id: others_acl
+        address: 192.168.3.0/24
+        action: xfer
 
-Knot DNS support binding to multiple available interfaces in the
-``interfaces`` section.  You can also use the special addresses for
-"any address" like ``0.0.0.0`` or ``[::]``::
+    zone:
+      - domain: example.com
+        storage: /var/lib/knot/zones/
+        file: example.com.zone
+        notify: slave1
+        acl: [slave1_acl, others_acl]
 
-    interfaces {
-      if1 { address 192.168.1.2@53; }
-      anyv6 { address [::]@53; }
-    }
+Optionally a TSIG key can be specified::
 
-Using DNS UPDATE
-================
+    key:
+      - id: slave1_key
+        algorithm: hmac-md5
+        secret: Wg==
 
-As noted in examples for master and slave, it is possible to accept
-DNS UPDATE messages.  When the zone is configured as a slave and DNS
-UPDATE messages is accepted, server forwards the message to its
-primary master specified by ``xfr-in`` directive. When it receives the
-response from primary master, it forwards it back to the
-originator. This finishes the transaction.
+    remote:
+      - id: slave1
+        address: 192.168.2.1@53
+        key: slave1_key
 
-However, if the zone is configured as master (i.e. not having any
-``xfr-in`` directive), it accepts such an UPDATE and processes it.
+    acl:
+      - id: slave1_acl
+        address: 192.168.2.1
+        key: slave1_key
+        action: xfer
 
-Remote control interface
-========================
+      - id: others_acl
+        address: 192.168.3.0/24
+        action: xfer
 
-As of v1.3.0, it is possible to control running daemon using UNIX
-sockets, which is also preferred over internet sockets. You don't need
-any specific configuration, since it is enabled by default and the
-UNIX socket is placed in the rundir.  To disable remote control
-completely, add an empty ``control`` section to the configuration
-like::
+Dynamic updates
+===============
 
-    control { }
+Dynamic updates for the zone are allowed via proper ACL rule with the
+``update`` action. If the zone is configured as a slave and DNS update
+message is accepted, the server forwards the message to its primary master.
+The master's response is then forwarded back to the originator.
 
-However you can still use IPv4/IPv6 address, although with several
-shortcomings.  You then can use ``allow`` for an ACL list similar to
-``xfr-in`` or ``xfr-out``, see that for syntax reference. The
-``listen-on`` has syntax equal to an interface specification, but the
-default port for remote control protocol is ``5533``.  However keep in
-mind, that the transferred data isn't encrypted and could be
-susceptible to replay attack in a short timeframe.
+However, if the zone is configured as master, the update is accepted and
+processed::
 
-Example configuration::
+    acl:
+      - id: update_acl
+        address: 192.168.3.0/24
+        action: update
 
-    control {
-    	listen-on { address 127.0.0.1@5533; }
-    }
+    zone:
+      - domain: example.com
+        file: example.com.zone
+        acl: update_acl
 
-Enabling zone semantic checks
-=============================
-
-You can turn on more detailed semantic checks of zone file in this
-``zones`` statement :ref:`zones`. Refer to :ref:`zones List of zone
-semantic checks` to see which checks are enabled by default and which
-are optional.
-
-Creating IXFR differences from zone file changes
-================================================
-
-If Knot is being run as a master server, feature
-``ixfr-from-differences`` can be enabled to create IXFR differences
-from changes made to the master zone file.  See :ref:`Controlling
-running daemon` for more information. For more about ``zones``
-statement see :ref:`zones`.
-
-Using Response Rate Limiting
-============================
+Response rate limiting
+======================
 
 Response rate limiting (RRL) is a method to combat recent DNS
-reflection amplification attacks.  These attacked rely on the fact
+reflection amplification attacks. These attacks rely on the fact
 that source address of a UDP query could be forged, and without a
 worldwide deployment of BCP38, such a forgery could not be detected.
 Attacker could then exploit DNS server responding to every query,
 potentially flooding the victim with a large unsolicited DNS
 responses.
 
-As of Knot DNS version 1.2.0, RRL is compiled in, but disabled by
-default.  You can enable it with the :ref:`rate-limit` option in the
-:ref:`system` section.  Setting to a value greater than ``0`` means
-that every flow is allowed N responses per second, (i.e. ``rate-limit
-50;`` means ``50`` responses per second).  It is also possible to
-configure SLIP interval, which causes every Nth ``blocked`` response to be
-slipped as a truncated response. Note that some error responses cannot
-be truncated.  For more information, refer to the :ref:`rate-limit-slip`.
-It is advisable to not set slip interval to a value larger than 2,
-as too large slip value means more denial of service for legitimate
-requestors, and introduces excessive timeouts during resolution.
-On the other hand, slipping truncated answer gives the legitimate
-requestors a chance to reconnect over TCP.
+You can enable RRL with the :ref:`server_rate-limit` option in the
+:ref:`server section<Server section>`. Setting to a value greater than ``0``
+means that every flow is allowed N responses per second, (i.e. ``rate-limit
+50;`` means ``50`` responses per second). It is also possible to
+configure :ref:`server_rate-limit-slip` interval, which causes every N\ :sup:`th`
+blocked response to be slipped as a truncated response::
 
-Example configuration::
+    server:
+        rate-limit: 200     # Each flow is allowed to 200 resp. per second
+        rate-limit-slip: 1  # Every response is slipped
 
-    system {
-    	rate-limit 200;    # Each flow is allowed to 200 resp. per second
-    	rate-limit-slip 1; # Every response is slipped (default)
-    }
+.. _dnssec:
 
 Automatic DNSSEC signing
 ========================
 
-Knot DNS 1.4.0 is the first release to include automatic DNSSEC
-signing feature.  Automatic DNSSEC signing is currently a technical
-preview and there are some limitations we will try to eliminate. The
-concept of key management and configuration is likely to change in the
-future without maintaining backward compatibility.
+Knot DNS supports automatic DNSSEC signing for static zones. The signing
+can operate in two modes:
+
+1. :ref:`Manual key management <dnssec-manual-key-management>`.
+   In this mode, the server maintains zone signatures only. The signatures
+   are kept up-to-date and signing keys are rolled according to timing
+   parameters assigned to the keys. The keys must be generated by the zone
+   operator.
+
+2. :ref:`Automatic key management <dnssec-automatic-key-management>`.
+   In this mode, the server also maintains singing keys. New keys are generated
+   according to assigned policy and are rolled automatically in a safe manner.
+   No zone operator intervention is necessary.
+
+The DNSSEC signing is controlled by the :ref:`template_dnssec-enable` and
+:ref:`template_dnssec-keydir` configuration options. The first option states
+if the signing is enabled for a particular zone, the second option points to
+a KASP database holding the signing configuration.
+
+.. _dnssec-example:
 
 Example configuration
 ---------------------
 
-The example configuration enables automatic signing for all zones
-using :ref:`dnssec-enable` option in the ``zones`` section, but the
-signing is explicitly disabled for zone ``example.dev`` using the same
-option directly in zone configuration. The location of directory with
-signing keys is set globally by option :ref:`dnssec-keydir`::
+The example configuration enables automatic signing for all zones in the
+default template, but the signing is explicitly disabled for zone
+``example.dev``. The KASP database is common for all zones::
 
-    zones {
-      dnssec-enable on;
-      dnssec-keydir "/var/lib/knot/keys";
+    template:
+      - id: default
+        dnssec-enable: on
+        dnssec-keydir: /var/lib/knot/kasp
 
-      example.com {
-        file "example.com.zone";
-      }
+    zone:
+      - domain: example.com
+        file: example.com.zone
 
-      example.dev {
-        file "example.dev.zone";
-        dnssec-enable off;
-      }
-    }
+      - domain: example.dev
+        file: example.dev.zone
+        dnssec-enable: off
 
-Signing keys
-------------
+.. _dnssec-kasp:
 
-The signing keys can be generated using ISC ``dnssec-keygen`` tool
-only and there are some limitations:
+DNSSEC KASP database
+--------------------
 
-* Keys for all zones must be placed in one directory.
-* Only key publication, activation, inactivation, and removal time
-  stamps are utilized. Other time stamps are ignored.
-* It is required, that both ``.private`` and ``.key`` files for each
-  key are available in the key directory in order to use the keys
-  (even for verification only).
-* There cannot be more than eight keys per zone. Keys which are not
-  published are not included in this number.
+The configuration for DNSSEC is stored in a :abbr:`KASP (Key And Signature
+Policy)` database. The database is simply a directory on the file-system
+containing files in the JSON format. The database contains
 
-Example how to generate NSEC3 capable zone signing key (ZSK) and key
-signing key (KSK) for zone ``example.com``::
+- definitions of signing policies;
+- zones configuration; and
+- private key material.
 
-    $ cd /var/lib/knot/keys
-    $ dnssec-keygen -3 example.com
-    $ dnssec-keygen -3 -f KSK example.com
+The :doc:`keymgr <man_keymgr>` utility serves for the database maintenance.
+To initialize the database, run::
+
+  $ mkdir -p /var/lib/knot/kasp
+  $ cd /var/lib/knot/kasp
+  $ keymgr init
+
+.. ATTENTION::
+  Make sure to set the KASP database permissions correctly. For manual key
+  management, the database must be **readable** by the server process. For
+  automatic key management, it must be **writeable**. The database also
+  contains private key material -- don't set the permissions too loose.
+
+.. _dnssec-automatic-key-management:
+
+Automatic key management
+------------------------
+
+For automatic key management, a signing policy has to be defined in the
+first place. This policy specifies how a zone is signed (i.e. signing
+algorithm, key size, signature lifetime, key lifetime, etc.).
+
+To create a new policy named *default_rsa* using *RSA-SHA-256* algorithm for
+signing keys, 1024-bit long ZSK, and 2048-bit long KSK, run::
+
+  $ keymgr policy add default_rsa algorithm RSASHA256 zsk-size 1024 ksk-size 2048
+
+The unspecified policy parameters are set to defaults. The complete definition
+of the policy will be printed after executing the command.
+
+Next, create a zone entry for zone *myzone.test* and assign it the newly
+created policy::
+
+  $ keymgr zone add myzone.test policy default_rsa
+
+Make sure everything is set correctly::
+
+  $ keymgr policy show default_rsa
+  $ keymgr zone show myzone.test
+
+Add the zone into the server configuration and enable DNSSEC for that zone.
+The configuration fragment might look similar to::
+
+  template:
+    - id: default
+      storage: /var/lib/knot
+      dnssec-keydir: kasp
+
+  zone:
+    - domain: myzone.test
+      dnssec-enable: on
+
+Finally, reload the server::
+
+  $ knotc reload
+
+The server will generate initial signing keys and sign the zone properly. Check
+the server logs to see whether everything went well.
+
+.. ATTENTION::
+  This guide assumes that the zone *myzone.test* was not signed prior to
+  enabling the automatic key management. If the zone was already signed, all
+  existing keys must be imported using ``keymgr zone key import`` command
+  before reloading the server. Also the algorithm in the policy must match
+  the algorithm of all imported keys.
+
+.. _dnssec-manual-key-management:
+
+Manual key management
+---------------------
+
+For automatic DNSSEC signing with manual key management, a signing policy
+need not be defined.
+
+Create a zone entry for the zone *myzone.test* without a policy::
+
+  $ keymgr zone add myzone.test
+
+Generate a signing keys for the zone. Let's use the Single-Type Signing scheme
+with two algorithms (this scheme is not supported in automatic key management).
+Run::
+
+  $ keymgr zone key generate myzone.test algorithm RSASHA256 size 1024
+  $ keymgr zone key generate myzone.test algorithm ECDSAP256SHA256 size 256
+
+Enable automatic DNSSEC signing for the zone in the server configuration and
+reload the server. Use the same steps as in
+:ref:`dnssec-automatic-key-management`.
+
+To perform a manual rollover of a key, the timing parameters of the key need
+to be set. Let's roll the RSA key. Generate a new RSA key, but do not activate
+it yet::
+
+  $ keymgr zone key generate myzone.test algorithm RSASHA256 size 1024 activate +1d
+
+Take the key ID (or key tag) of the old RSA key and disable it the same time
+the new key gets activated::
+
+  $ keymgr zone key set myzone.test <old_key_id> retire +1d remove +1d
+
+Reload the server again. The new key gets published. Do not forget to update
+the DS record in the parent zone to include the reference to the new RSA key.
+This must happen in one day (in this case) including a delay required to
+propagate the new DS to caches.
+
+Note that as the ``+1d`` time specification is computed from the current time,
+the key replacement will not happen at once. First, a new key will be
+activated.  A few moments later, the old key will be deactivated and removed.
+You can use exact time specification to make these two actions happen in one
+go.
+
+.. _dnssec-signing-policy:
 
 Signing policy
 --------------
 
-Currently the signing policy is not configurable, except for signature
-lifetime.
+The signing policy used in the KASP database defines parameters, how the zone
+signatures and keys should be handled. At the moment, the policy comprises
+of the following parameters:
 
-* Signature lifetime can be set in configuration globally for all
-  zones and for each zone in particular. :ref:`signature-lifetime`. If
-  not set, the default value is 30 days.
-* Signature is refreshed 2 hours before expiration. The signature
-  lifetime must thus be set to more than 2 hours.
+Signing algorithm
+  An algorithm of signing keys and issued signatures. The default value is
+  *RSA-SHA-256*.
+
+:abbr:`KSK (Key Signing Key)` size
+  Desired length of the newly generated ZSK keys. The default value is 2048
+  bits.
+
+:abbr:`ZSK (Zone Signing Key)` size
+  Desired length of the newly generated ZSK keys. The default value is 1024
+  bits.
+
+DNSKEY TTL
+  TTL value for DNSKEY records added into zone apex. This parameter is
+  temporarily overridden by the TTL value of the zone SOA record and thus
+  has no default value.
+
+ZSK lifetime
+  Interval after which the ZSK rollover will be initiated. The default value
+  is 30 days.
+
+RRSIG lifetime
+  Lifetime of newly issued signatures. The default value is 14 days.
+
+RRSIG refresh
+  Specifies how long before a signature expiration the signature will be
+  refreshed. The default value is 7 days.
+
+NSEC3
+  Specifies if NSEC3 will be used instead of NSEC. This value is temporarily
+  ignored. The setting is derived from the NSEC3PARAM record presence in the
+  zone. The default value has not been decided yet.
+
+SOA minimum TTL
+  Specifies the SOA Minimum TTL field value. This option is required for
+  correct key rollovers. The value has no real meaning with Knot DNS because
+  the server will use a real value from the zone.
+
+Zone maximum TTL
+  Maximum TTL value present in the zone. This option is required for correct
+  key rollovers. Knot DNS will determine the value automatically in the future.
+
+Propagation delay
+  An extra delay added for each key rollover step. This value should be high
+  enough to cover propagation of data from the master server to all slaves.
+  The default value is 1 hour.
+
+.. _dnssec-signing:
 
 Zone signing
 ------------
 
 The signing process consists of the following steps:
 
-* Fixing ``NSEC`` or ``NSEC3`` records. This is determined by
-  ``NSEC3PARAM`` record presence in unsigned zone.
-* Updating ``DNSKEY`` records. This also means adding DNSKEY records
-  for any keys that are present in keydir, but missing in zone file.
-* Removing expired signatures, invalid signatures, signatures expiring
-  in a short time, and signatures with unknown key.
-* Creating missing signatures. Unless the Single-Type Signing Scheme
-  is used, ``DNSKEY`` records in a zone apex are signed by KSK keys and
-  all other records are signed by ZSK keys.
-* SOA record is updated and resigned if any changes were performed.
+#. Processing KASP database events. (e.g. performing a step of a rollover).
+#. Fixing the NSEC or NSEC3 chain.
+#. Updating the DNSKEY records. The whole DNSKEY set in zone apex is replaced
+   by the keys from the KASP database. Note that keys added into the zone file
+   manually will be removed. To add an extra DNSKEY record into the set, the
+   key must be imported into the KASP database (possibly deactivated).
+#. Removing expired signatures, invalid signatures, signatures expiring
+   in a short time, and signatures issued by unknown key.
+#. Creating missing signatures. Unless the Single-Type Signing Scheme
+   is used, DNSKEY records in a zone apex are signed by KSK keys and
+   all other records are signed by ZSK keys.
+#. Updating and resigning SOA record.
 
-The zone signing is performed when the zone is loaded into server, on
-zone reload, before any signature is expiring, and after DDNS
-update. The signing can be also forced using ``signzone`` command
-issued by ``knotc``, in this case all signatures are recreated. After
-each zone signing, a new signing event is planned. User can view the
-time of this event by using the ``knotc zonestatus`` command.
+The signing is initiated on the following occasions:
+
+- Start of the server
+- Zone reload
+- Reaching the signature refresh period
+- Received DDNS update
+- Forced zone resign issued with ``knotc signzone``
+
+On forced zone resign, all signatures in the zone are dropped and recreated.
+
+The ``knotc zonestatus`` command can be used to see when the next scheduled
+DNSSEC resign will happen.
+
+.. _dnssec-limitations:
+
+Limitations
+-----------
+
+The current DNSSEC implementation in Knot DNS has a bunch of limitations. Most
+of the limitations will be hopefully removed in a near future.
+
+- Automatic key management:
+
+  - Only one DNSSEC algorithm can be used at a time for one zone.
+  - Single-Type Signing scheme is not supported.
+  - ZSK rollover always uses key pre-publish method (actually a feature).
+  - KSK rollover is not implemented.
+
+- Manual key management:
+
+  - Default values for signature lifetime are forced.
+
+- NSEC3:
+
+  - Use of NSEC3 is determined by the presence of NSEC3PARAM in the zone.
+  - Automatic re-salt is not implemented.
+
+- KASP policy:
+
+  - DNSKEY TTL value is overridden by the SOA TTL.
+  - NSEC3 related parameters are ignored.
+  - Zone maximum TTL is not determined automatically.
+
+- Signing:
+
+  - Signature expiration jitter is not implemented.
+  - Signature expiration skew is not implemented.
+
+- Utilities:
+
+  - Legacy key import requires private key.
+  - Legacy key export is not implemented.
+  - DS record export is not implemented.
 
 Query modules
 =============
 
 Knot DNS supports configurable query modules that can alter the way
-queries are processed.  The concept is quite simple - each query
-requires a finite number of steps to be resolved.  We call this set of
+queries are processed. The concept is quite simple -- each query
+requires a finite number of steps to be resolved. We call this set of
 steps a query plan, an abstraction that groups these steps into
 several stages.
 
@@ -353,116 +567,112 @@ several stages.
 
 For example, processing an Internet zone query needs to find an
 answer. Then based on the previous state, it may also append an
-authority SOA or provide additional records.  Each of these actions
-represents a 'processing step'.  Now if a query module is loaded for a
+authority SOA or provide additional records. Each of these actions
+represents a 'processing step'. Now if a query module is loaded for a
 zone, it is provided with an implicit query plan, and it is allowed to
 extend it or even change it altogether.
 
-*Note:* Programmable interface is described in the ``query_module.h``,
-it will not be discussed here.
-
-The general syntax for importing a query module is described in the
-:ref:`query_module` configuration reference.  Basically, each module is
-described by a name and a configuration string.  Below is a list of
-modules and configuration string reference.
+Each module is configured in the corresponding module section and is
+identified for the subsequent usage. Then, the identifier is referenced
+through :ref:`template_module` option (in the form of ``module_name/module_id``)
+in the zone section or in the ``default`` template if it used for all queries.
 
 ``dnstap`` - dnstap-enabled query logging
 -----------------------------------------
 
-The Knot DNS supports dnstap_ for query and response logging.
-You can capture either all or zone-specific queries and responses, usually you want to do
-the former. The dnstap module accepts only a sink path as a parameter, which can either be a file
-or a UNIX socket prefixed with *unix:*.
+Module for query and response logging based on dnstap_ library.
+You can capture either all or zone-specific queries and responses, usually
+you want to do the former. The configuration consists only from a
+:ref:`mod-dnstap_sink` path parameter, which can either be a file or
+a UNIX socket::
 
-For example::
+    mod-dnstap:
+      - id: capture_all
+        sink: /tmp/capture.tap
 
-    zones {
-        query_module {
-            dnstap "/tmp/capture.tap";
-        }
-    }
-
-You can also log to a UNIX socket with the prefix::
-
-    zones {
-        query_module {
-            dnstap "unix:/tmp/capture.tap";
-        }
-    }
+    template:
+      - id: default
+        module: mod-dnstap/capture_all
 
 .. _dnstap: http://dnstap.info/
 
 ``synth_record`` - Automatic forward/reverse records
 ----------------------------------------------------
 
-This module is able to synthetise either forward or reverse records for given prefix and subnet.
-The module configuration string looks like this: ``(forward|reverse) <prefix> <ttl> <address>/<netblock>``.
+This module is able to synthesize either forward or reverse records for
+given prefix and subnet.
 
-Records are synthetised only if the query can't be satisfied from the zone. Both IPv4 and IPv6 are supported.
-*Note: 'prefix' doesn't allow dots, address parts in the synthetic names are separated with a dash.*
+Records are synthesized only if the query can't be satisfied from the zone.
+Both IPv4 and IPv6 are supported.
 
-Here are a few examples:
 *Note: long names are snipped for readability.*
 
 Automatic forward records
 -------------------------
 
-``synth_record "forward dynamic- 400 2620:0:b61::/52"`` on ``example.`` zone will result in following
-answer::
+Example::
 
-    $ kdig AAAA dynamic-2620-0000-0b61-0100-0000-0000-0000-0000.example.
-    ...
-    ;; QUESTION SECTION:
-    ;; dynamic-2620-0000-0b61-0100-0000-0000-0000-0000.example. 0	IN	AAAA
+   mod-synth-record:
+     - id: test1
+       type: forward
+       prefix: dynamic-
+       ttl: 400
+       address: 2620:0:b61::/52
 
-    ;; ANSWER SECTION:
-    dynamic-2620-0000-0b61-0100... 400 IN AAAA 2620:0:b61:100::
+   zone:
+     - domain: example.
+       file: example.zone # Zone file have to exist!
+       module: mod-synth-record/test1
 
-You can also have CNAME aliases to the dynamic records, which are going to be further resoluted::
+Result::
 
-    $ kdig AAAA hostalias.example.
-    ...
-    ;; QUESTION SECTION:
-    ;hostalias.example. 0	IN	AAAA
+   $ kdig AAAA dynamic-2620-0000-0b61-0100-0000-0000-0000-0000.example.
+   ...
+   ;; QUESTION SECTION:
+   ;; dynamic-2620-0000-0b61-0100-0000-0000-0000-0000.example. 0	IN	AAAA
 
-    ;; ANSWER SECTION:
-    hostalias.example. 3600 IN CNAME dynamic-2620-0000-0b61-0100...
-    dynamic-2620-0000-0b61-0100... 400  IN AAAA  2620:0:b61:100::
+   ;; ANSWER SECTION:
+   dynamic-2620-0000-0b61-0100... 400 IN AAAA 2620:0:b61:100::
+
+You can also have CNAME aliases to the dynamic records, which are going to be
+further resoluted::
+
+   $ kdig AAAA hostalias.example.
+   ...
+   ;; QUESTION SECTION:
+   ;hostalias.example. 0	IN	AAAA
+
+   ;; ANSWER SECTION:
+   hostalias.example. 3600 IN CNAME dynamic-2620-0000-0b61-0100...
+   dynamic-2620-0000-0b61-0100... 400  IN AAAA  2620:0:b61:100::
 
 Automatic reverse records
 -------------------------
 
-Module can be configured to synthetise reverse records as well.  With
-the ``synth_record "reverse dynamic- example. 400 2620:0:b61::/52"``
-string in the ``1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa.`` zone
-configuration::
+Example::
 
-    $ kdig PTR 1.0.0...1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa.
-    ...
-    ;; QUESTION SECTION:
-    ;; 1.0.0...1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa. 0	IN	PTR
+   mod-synth-record:
+     - id: test2
+       type: reverse
+       prefix: dynamic-
+       zone: example
+       ttl: 400
+       address: 2620:0:b61::/52
 
-    ;; ANSWER SECTION:
-    ... 400 IN PTR dynamic-2620-0000-0b61-0000-0000-0000-0000-0001.example.
+   zone:
+     - domain: 1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa.
+       file: 1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa.zone # Zone file have to exist!
+       module: mod-synth-record/test2
 
-Here's a full configuration of the aforementioned zones. Note that the zone files have to exist::
+Result::
 
-    example. {
-      query_module {
-        synth_record "forward dynamic- 400 2620:0:b61::/52";
-        synth_record "forward dynamic- 400 192.168.1.0/25";
-      }
-    }
-    1.168.192.in-addr.arpa {
-      query_module {
-        synth_record "reverse dynamic- example. 400 192.168.1.0/25";
-      }
-    }
-    1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa {
-      query_module {
-        synth_record "reverse dynamic- example. 400 2620:0:b61::/52";
-      }
-    }
+   $ kdig PTR 1.0.0...1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa.
+   ...
+   ;; QUESTION SECTION:
+   ;; 1.0.0...1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa. 0	IN	PTR
+
+   ;; ANSWER SECTION:
+   ... 400 IN PTR dynamic-2620-0000-0b61-0000-0000-0000-0000-0001.example.
 
 Limitations
 ^^^^^^^^^^^
@@ -475,114 +685,124 @@ Limitations
 ``dnsproxy`` - Tiny DNS proxy
 -----------------------------
 
-The module catches all unsatisfied queries and forwards them to the configured server for resolution,
-i.e. a tiny DNS proxy. This can be useful to several things:
+The module catches all unsatisfied queries and forwards them to the
+configured server for resolution, i.e. a tiny DNS proxy. This can be useful
+for several things:
 
 * A substitute public-facing server in front of the real one
 * Local zones (poor man's "views"), rest is forwarded to the public-facing server
 * etc.
 
-The configuration is straightforward and just accepts a single IP address (either IPv4 or IPv6).
+*Note: The module does not alter the query/response as the resolver would do,
+also the original transport protocol is kept.*
 
-*Note: The module does not alter the query/response as the resolver would do, also the original
-transport protocol is kept.*
+The configuration is straightforward and just accepts a single IP address
+(either IPv4 or IPv6)::
 
-Example
-^^^^^^^
+   mod-dnsproxy:
+     - id: default
+       remote: 10.0.1.1
 
-Example configuration::
+   template:
+     - id: default
+       module: mod-dnsproxy/default
 
-        $ vim knot.conf
-        knot.conf:
-        zones {
-                local.zone {}
-                query_module {
-                        dnsproxy "10.0.1.1";
-                }
-        }
+   zone:
+     - domain: local.zone
 
-Now when the clients query for anything in the ``local.zone``, it will be answered locally.
-Rest of the requests will be forwarded to the specified server (``10.0.1.1`` in this case).
+Now when the clients query for anything in the ``local.zone``, it will be
+answered locally. Rest of the requests will be forwarded to the specified
+server (``10.0.1.1`` in this case).
 
 ``rosedb`` - Static resource records
 ------------------------------------
 
-The module provides a mean to override responses for certain queries before the record is searched in
-the available zones. The modules comes with a tool ``rosedb_tool`` to manipulate with the database
-of static records. Neither the tool nor the module are enabled by default, recompile with the configure flag ``--enable-rosedb``
-to enable them.
+The module provides a mean to override responses for certain queries before
+the record is searched in the available zones. The modules comes with a tool
+``rosedb_tool`` to manipulate with the database of static records.
+Neither the tool nor the module are enabled by default, recompile with
+the configure flag ``--enable-rosedb`` to enable them.
 
 For example, suppose we have a database of following records::
 
-        myrecord.com.      3600 IN A 127.0.0.1
-        www.myrecord.com.  3600 IN A 127.0.0.2
-        ipv6.myrecord.com. 3600 IN AAAA ::1
+   myrecord.com.      3600 IN A 127.0.0.1
+   www.myrecord.com.  3600 IN A 127.0.0.2
+   ipv6.myrecord.com. 3600 IN AAAA ::1
 
 And we query the nameserver with following::
 
-        $ kdig IN A myrecord.com
-          ... returns NOERROR, 127.0.0.1
-        $ kdig IN A www.myrecord.com
-          ... returns NOERROR, 127.0.0.2
-        $ kdig IN A stuff.myrecord.com
-          ... returns NOERROR, 127.0.0.1
-        $ kdig IN AAAA myrecord.com
-          ... returns NOERROR, NODATA
-        $ kdig IN AAAA ipv6.myrecord.com
-          ... returns NOERROR, ::1
+   $ kdig IN A myrecord.com
+     ... returns NOERROR, 127.0.0.1
+   $ kdig IN A www.myrecord.com
+     ... returns NOERROR, 127.0.0.2
+   $ kdig IN A stuff.myrecord.com
+     ... returns NOERROR, 127.0.0.1
+   $ kdig IN AAAA myrecord.com
+     ... returns NOERROR, NODATA
+   $ kdig IN AAAA ipv6.myrecord.com
+     ... returns NOERROR, ::1
 
-*Note: An entry in the database matches anything at or below it, i.e. 'myrecord.com' matches 'a.a.myrecord.com' as well.
+*Note: An entry in the database matches anything at or below it,
+i.e. 'myrecord.com' matches 'a.a.myrecord.com' as well.
 This can be exploited to create a catch-all entries.*
 
-You can also add an authority information for the entries, provided you create a SOA + NS records for a name, like so::
+You can also add an authority information for the entries, provided you create
+a SOA + NS records for a name, like so::
 
-        myrecord.com.     3600 IN SOA master host 1 3600 60 3600 3600
-        myrecord.com.     3600 IN NS ns1.myrecord.com.
-        myrecord.com.     3600 IN NS ns2.myrecord.com.
-        ns1.myrecord.com. 3600 IN A 127.0.0.1
-        ns2.myrecord.com. 3600 IN A 127.0.0.2
+   myrecord.com.     3600 IN SOA master host 1 3600 60 3600 3600
+   myrecord.com.     3600 IN NS ns1.myrecord.com.
+   myrecord.com.     3600 IN NS ns2.myrecord.com.
+   ns1.myrecord.com. 3600 IN A 127.0.0.1
+   ns2.myrecord.com. 3600 IN A 127.0.0.2
 
 In this case, the responses will:
 
 1. Be authoritative (AA flag set)
 2. Provide an authority section (SOA + NS)
-3. NXDOMAIN if the name is found *(i.e. the 'IN AAAA myrecord.com' from the example)*, but not the RR type *(this is to allow synthesis of negative responses)*
+3. NXDOMAIN if the name is found *(i.e. the 'IN AAAA myrecord.com' from
+   the example)*, but not the RR type *(this is to allow synthesis of negative
+   responses)*
 
-*Note: The SOA record applies only to the 'myrecord.com.', not to any other record (even below it). From this point of view,
-all records in the database are unrelated and not hierarchical. The reasoning is to provide a subtree isolation for each entry.*
+*Note: The SOA record applies only to the 'myrecord.com.', not to any other
+record (even below it). From this point of view, all records in the database
+are unrelated and not hierarchical. The reasoning is to provide a subtree
+isolation for each entry.*
 
-In addition the module is able to log matching queries via remote syslog if you specify a syslog address endpoint and an
-optional string code.
+In addition the module is able to log matching queries via remote syslog if
+you specify a syslog address endpoint and an optional string code.
 
 Here is an example on how to use the module:
 
 * Create the entries in the database::
 
-        $ mkdir /tmp/static_rrdb
-        $ rosedb_tool /tmp/static_rrdb add myrecord.com. A 3600 "127.0.0.1" "-" "-" # No logging
-        $ rosedb_tool /tmp/static_rrdb add www.myrecord.com. A 3600 "127.0.0.1" "www_query" "10.0.0.1" # Syslog @ 10.0.0.1
-        $ rosedb_tool /tmp/static_rrdb add ipv6.myrecord.com. AAAA 3600 "::1" "ipv6_query" "10.0.0.1" # Syslog @ 10.0.0.1
-        $ rosedb_tool /tmp/static_rrdb list # Verify
-        www.myrecord.com.       A RDATA=10B     www_query       10.0.0.1
-        ipv6.myrecord.com.      AAAA RDATA=22B  ipv6_query      10.0.0.1
-        myrecord.com.           A RDATA=10B     -               -
+   $ mkdir /tmp/static_rrdb
+   $ rosedb_tool /tmp/static_rrdb add myrecord.com. A 3600 "127.0.0.1" "-" "-" # No logging
+   $ rosedb_tool /tmp/static_rrdb add www.myrecord.com. A 3600 "127.0.0.1" "www_query" "10.0.0.1" # Syslog @ 10.0.0.1
+   $ rosedb_tool /tmp/static_rrdb add ipv6.myrecord.com. AAAA 3600 "::1" "ipv6_query" "10.0.0.1" # Syslog @ 10.0.0.1
+   $ rosedb_tool /tmp/static_rrdb list # Verify
+   www.myrecord.com.       A RDATA=10B     www_query       10.0.0.1
+   ipv6.myrecord.com.      AAAA RDATA=22B  ipv6_query      10.0.0.1
+   myrecord.com.           A RDATA=10B     -               -
 
  *Note: the database may be modified while the server is running later on.*
 
-* Configure the query module and start the server::
+* Configure the query module::
 
-        $ vim knot.conf
-        knot.conf:
-        zones {
-                query_module {
-                        rosedb "/tmp/static_rrdb";
-                }
-        }
+   mod-rosedb:
+     - id: default
+       dbdir: /tmp/static_rrdb
 
-        $ knotd -c knot.conf
+   template:
+     - id: default
+       module: mod-rosedb/default
 
-  *Note: The module accepts just one parameter - path to the directory where the database will be stored.*
+  *Note: The module accepts just one parameter - path to the directory where
+  the database will be stored.*
+
+* Start the server::
+
+   $ knotd -c knot.conf
 
 * Verify the running instance::
 
-        $ kdig @127.0.0.1#6667 A myrecord.com
+   $ kdig @127.0.0.1#6667 A myrecord.com

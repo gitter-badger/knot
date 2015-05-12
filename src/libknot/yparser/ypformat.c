@@ -14,6 +14,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "libknot/internal/macros.h"
 #include "libknot/yparser/yptrafo.h"
 #include "libknot/libknot.h"
 
@@ -33,7 +34,6 @@ static int format_item(
 	}
 
 	// Format key part.
-	size_t total = 0;
 	int ret = snprintf(out, out_len, "%s%s%s%s",
 	                   first_value ? prefix : "",
 	                   first_value ? item->name + 1 : "",
@@ -43,8 +43,7 @@ static int format_item(
 	if (ret < 0 || ret >= out_len) {
 		return KNOT_ESPACE;
 	}
-	total += ret;
-	out   += ret;
+	out     += ret;
 	out_len -= ret;
 
 	// Finish if group.
@@ -58,8 +57,7 @@ static int format_item(
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
-	total += aux_len;
-	out   += aux_len;
+	out     += aux_len;
 	out_len -= aux_len;
 
 	// Format data end.
@@ -73,6 +71,7 @@ static int format_item(
 	return KNOT_EOK;
 }
 
+_public_
 int yp_format_key0(
 	const yp_item_t *item,
 	const uint8_t *data,
@@ -87,6 +86,7 @@ int yp_format_key0(
 	                   first_value, last_value);
 }
 
+_public_
 int yp_format_id(
 	const yp_item_t *item,
 	const uint8_t *data,
@@ -103,6 +103,7 @@ int yp_format_id(
 	                   true, true);
 }
 
+_public_
 int yp_format_key1(
 	const yp_item_t *item,
 	const uint8_t *data,

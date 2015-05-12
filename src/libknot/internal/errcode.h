@@ -131,6 +131,11 @@ enum knot_error {
 	KNOT_YP_ENODATA,
 	KNOT_YP_ENOID,
 
+	/* Configuration errors. */
+	KNOT_CONF_EMPTY,
+	KNOT_CONF_EVERSION,
+	KNOT_CONF_EREDEFINE,
+
 	/* Processing error. */
 	KNOT_LAYER_ERROR,
 
@@ -140,13 +145,8 @@ enum knot_error {
 /*!
  * \brief Get a POSIX errno mapped to Knot error code.
  *
- * \internal
- *
- * \param fallback  Falback error code.
- * \param arg0...   Error codes allowed for lookup, list must be terminated by 0.
- *
- * \return Mapped errno or fallback error code.
+ * \return Mapped errno or KNOT_ERROR if unknown.
  */
-int knot_map_errno_internal(int fallback, int arg0, ...);
+int knot_map_errno(void);
 
 /*! @} */

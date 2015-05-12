@@ -1,5 +1,8 @@
 ACLOCAL_AMFLAGS = -I m4
-SUBDIRS = libtap src tests samples doc man patches
+SUBDIRS = libtap src tests tests-fuzz samples doc
+
+singlehtml install-singlehtml:
+	$(MAKE) -C doc $@
 
 AM_DISTCHECK_CONFIGURE_FLAGS = \
 	--disable-code-coverage
@@ -57,14 +60,12 @@ endif
 code-coverage-html:
 if CODE_COVERAGE_ENABLED
 	@echo "Generating code coverage HTML report (this might take a while)"
-	@cp src/knot/conf/cf-lex.l src/knot/conf/cf-parse.y src/
 	LANG=C $(GENHTML) $(code_coverage_quiet) \
 		--output-directory $(CODE_COVERAGE_HTML) \
 		--title "Knot DNS $(PACKAGE_VERSION) Code Coverage" \
 		--legend --show-details \
 		--ignore-errors source \
 		$(CODE_COVERAGE_INFO)
-	-@rm src/cf-lex.l src/cf-parse.y
 else
 	@echo "You need to run configure with --enable-code-coverage to enable code coverage"
 endif
@@ -86,4 +87,4 @@ code-coverage-clean:
 	-find . -name "*.gcda" -o -name "*.gcov" -delete
 endif
 
-.PHONY: check-code-coverage code-coverage-initial code-coverage-capture code-coverage-html code-coverage-summary code-coverage-clean
+.PHONY: check-code-coverage code-coverage-initial code-coverage-capture code-coverage-html code-coverage-summary code-coverage-clean singlehtml install-singlehtml

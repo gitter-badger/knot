@@ -172,8 +172,7 @@ static void test_store_load(char *jfilename)
 	uint8_t *apex = (uint8_t *)"\4test";
 
 	/* Create fake zone. */
-	conf_zone_t zconf;// = { .ixfr_fslimit = filesize };
-	zone_t z = { .name = apex, .conf = &zconf };
+	zone_t z = { .name = apex };
 
 	/* Save and load changeset. */
 	changeset_t ch;

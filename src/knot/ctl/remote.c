@@ -16,6 +16,7 @@
 
 #include <assert.h>
 #include <sys/stat.h>
+#include <urcu.h>
 
 #include "dnssec/random.h"
 #include "knot/common/debug.h"
@@ -172,7 +173,11 @@ static int remote_zone_refresh(zone_t *zone, remote_cmdargs_t *a)
 {
 	UNUSED(a);
 
-	if (zone_master(zone) == NULL) {
+	rcu_read_lock();
+	bool is_master = zone_is_master(zone);
+	rcu_read_unlock();
+
+	if (is_master) {
 		return KNOT_EINVAL;
 	}
 
@@ -194,7 +199,11 @@ static int remote_zone_retransfer(zone_t *zone, remote_cmdargs_t *a)
 {
 	UNUSED(a);
 
-	if (zone_master(zone) == NULL) {
+	rcu_read_lock();
+	bool is_master = zone_is_master(zone);
+	rcu_read_unlock();
+
+	if (is_master) {
 		return KNOT_EINVAL;
 	}
 
@@ -208,10 +217,6 @@ static int remote_zone_flush(zone_t *zone, remote_cmdargs_t *a)
 {
 	UNUSED(a);
 
-	if (zone == NULL) {
-		return KNOT_EINVAL;
-	}
-
 	zone_events_schedule(zone, ZONE_EVENT_FLUSH, ZONE_EVENT_NOW);
 	return KNOT_EOK;
 }
@@ -221,7 +226,12 @@ static int remote_zone_sign(zone_t *zone, remote_cmdargs_t *a)
 {
 	UNUSED(a);
 
-	if (zone == NULL || !zone->conf->dnssec_enable) {
+	rcu_read_lock();
+	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_ENABLE, zone->name);
+	bool dnssec_enable = conf_bool(&val);
+	rcu_read_unlock();
+
+	if (!dnssec_enable) {
 		return KNOT_EINVAL;
 	}
 
@@ -342,15 +352,22 @@ static int remote_zonestatus(zone_t *zone, remote_cmdargs_t *a)
 	/* Prepare zone info. */
 	char buf[512] = { '\0' };
 	char dnssec_buf[128] = { '\0' };
+	char *zone_name = knot_dname_to_str_alloc(zone->name);
+
+	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_ENABLE, zone->name);
+	bool dnssec_enable = conf_bool(&val);
+	bool is_master = zone_is_master(zone);
+
 	int n = snprintf(buf, sizeof(buf),
 	                 "%s\ttype=%s | serial=%u | %s %s | %s %s\n",
-	                 zone->conf->name,
-	                 zone_master(zone) ? "slave" : "master",
+	                 zone_name,
+	                 is_master ? "master" : "slave",
 	                 serial,
 	                 next_name,
 	                 when,
-	                 zone->conf->dnssec_enable ? "automatic DNSSEC, resigning at:" : "DNSSEC signing disabled",
-	                 zone->conf->dnssec_enable ? dnssec_info(zone, dnssec_buf, sizeof(dnssec_buf)) : "");
+	                 dnssec_enable ? "automatic DNSSEC, resigning at:" : "DNSSEC signing disabled",
+	                 dnssec_enable ? dnssec_info(zone, dnssec_buf, sizeof(dnssec_buf)) : "");
+	free(zone_name);
 	if (n < 0 || n >= sizeof(buf)) {
 		return KNOT_ESPACE;
 	}
@@ -379,7 +396,7 @@ static int remote_c_zonestatus(server_t *s, remote_cmdargs_t* a)
 	if (a->argc == 0) {
 		knot_zonedb_foreach(s->zone_db, remote_zonestatus, a);
 	} else {
-		remote_rdata_apply(s, a, &remote_zonestatus);
+		remote_rdata_apply(s, a, remote_zonestatus);
 	}
 	rcu_read_unlock();
 
@@ -403,7 +420,7 @@ static int remote_c_refresh(server_t *s, remote_cmdargs_t* a)
 		knot_zonedb_foreach(s->zone_db, remote_zone_refresh, NULL);
 	} else {
 		/* Refresh specific zones. */
-		remote_rdata_apply(s, a, &remote_zone_refresh);
+		remote_rdata_apply(s, a, remote_zone_refresh);
 	}
 	rcu_read_unlock();
 
@@ -425,7 +442,7 @@ static int remote_c_retransfer(server_t *s, remote_cmdargs_t* a)
 	} else {
 		rcu_read_lock();
 		/* Retransfer specific zones. */
-		remote_rdata_apply(s, a, &remote_zone_retransfer);
+		remote_rdata_apply(s, a, remote_zone_retransfer);
 		rcu_read_unlock();
 	}
 
@@ -451,7 +468,7 @@ static int remote_c_flush(server_t *s, remote_cmdargs_t* a)
 		knot_zonedb_foreach(s->zone_db, remote_zone_flush, NULL);
 	} else {
 		/* Flush specific zones. */
-		remote_rdata_apply(s, a, &remote_zone_flush);
+		remote_rdata_apply(s, a, remote_zone_flush);
 	}
 	rcu_read_unlock();
 
@@ -462,17 +479,17 @@ static int remote_c_flush(server_t *s, remote_cmdargs_t* a)
  * \brief Remote command 'signzone' handler.
  *
  */
-static int remote_c_signzone(server_t *server, remote_cmdargs_t* arguments)
+static int remote_c_signzone(server_t *s, remote_cmdargs_t* a)
 {
 	dbg_server("remote: %s\n", __func__);
 
-	if (arguments->argc == 0) {
+	if (a->argc == 0) {
 		/* Resign all. */
 		return KNOT_CTL_ARG_REQ;
 	} else {
 		rcu_read_lock();
 		/* Resign specific zones. */
-		remote_rdata_apply(server, arguments, remote_zone_sign);
+		remote_rdata_apply(s, a, remote_zone_sign);
 		rcu_read_unlock();
 	}
 
@@ -488,28 +505,33 @@ static int remote_c_signzone(server_t *server, remote_cmdargs_t* arguments)
  */
 static int remote_senderr(int c, uint8_t *qbuf, size_t buflen)
 {
+	rcu_read_lock();
+	conf_val_t val = conf_get(conf(), C_SRV, C_MAX_CONN_REPLY);
+	struct timeval timeout = { conf_int(&val), 0 };
+	rcu_read_unlock();
+
 	knot_wire_set_qr(qbuf);
 	knot_wire_set_rcode(qbuf, KNOT_RCODE_REFUSED);
-	return tcp_send_msg(c, qbuf, buflen);
+	return tcp_send_msg(c, qbuf, buflen, &timeout);
 }
 
 /* Public APIs. */
 
-int remote_bind(conf_iface_t *desc)
+int remote_bind(struct sockaddr_storage *addr)
 {
-	if (desc == NULL) {
+	if (addr == NULL) {
 		return KNOT_EINVAL;
 	}
 
-	char addr_str[SOCKADDR_STRLEN] = {0};
-	sockaddr_tostr(addr_str, sizeof(addr_str), &desc->addr);
+	char addr_str[SOCKADDR_STRLEN] = { 0 };
+	sockaddr_tostr(addr_str, sizeof(addr_str), addr);
 	log_info("remote control, binding to '%s'", addr_str);
 
 	/* Create new socket. */
 	mode_t old_umask = umask(KNOT_CTL_SOCKET_UMASK);
-	int sock = net_bound_socket(SOCK_STREAM, &desc->addr, 0);
+	int sock = net_bound_socket(SOCK_STREAM, addr, 0);
 	if (sock == KNOT_EADDRNOTAVAIL) {
-		sock = net_bound_socket(SOCK_STREAM, &desc->addr, NET_BIND_NONLOCAL);
+		sock = net_bound_socket(SOCK_STREAM, addr, NET_BIND_NONLOCAL);
 		if (sock >= 0) {
 			log_warning("remote control, address '%s' is not available",
 			            addr_str);
@@ -527,22 +549,22 @@ int remote_bind(conf_iface_t *desc)
 	if (listen(sock, TCP_BACKLOG_SIZE) != 0) {
 		log_error("remote control, failed to listen on '%s'", addr_str);
 		close(sock);
-		return knot_map_errno(EADDRINUSE);
+		return knot_map_errno();
 	}
 
 	return sock;
 }
 
-int remote_unbind(conf_iface_t *desc, int sock)
+int remote_unbind(struct sockaddr_storage *addr, int sock)
 {
-	if (desc == NULL || sock < 0) {
+	if (addr == NULL || sock < 0) {
 		return KNOT_EINVAL;
 	}
 
 	/* Remove control socket file.  */
-	if (desc->addr.ss_family == AF_UNIX) {
-		char addr_str[SOCKADDR_STRLEN] = {0};
-		sockaddr_tostr(addr_str, sizeof(addr_str), &desc->addr);
+	if (addr->ss_family == AF_UNIX) {
+		char addr_str[SOCKADDR_STRLEN] = { 0 };
+		sockaddr_tostr(addr_str, sizeof(addr_str), addr);
 		unlink(addr_str);
 	}
 
@@ -629,7 +651,12 @@ static int remote_send_chunk(int c, knot_pkt_t *query, const char* d, uint16_t l
 		goto failed;
 	}
 
-	ret = tcp_send_msg(c, resp->wire, resp->size);
+	rcu_read_lock();
+	conf_val_t val = conf_get(conf(), C_SRV, C_MAX_CONN_REPLY);
+	struct timeval timeout = { conf_int(&val), 0 };
+	rcu_read_unlock();
+
+	ret = tcp_send_msg(c, resp->wire, resp->size, &timeout);
 
 failed:
 
@@ -707,6 +734,7 @@ int remote_answer(int sock, server_t *s, knot_pkt_t *pkt)
 	remote_cmdargs_t args = { 0 };
 	int ret = cmdargs_init(&args);
 	if (ret != KNOT_EOK) {
+		free(cmd);
 		return ret;
 	}
 
@@ -852,7 +880,7 @@ static int zones_verify_tsig_query(const knot_pkt_t *query,
 	return ret;
 }
 
-int remote_process(server_t *s, conf_iface_t *ctl_if, int sock,
+int remote_process(server_t *s, struct sockaddr_storage *ctl_addr, int sock,
                    uint8_t* buf, size_t buflen)
 {
 	knot_pkt_t *pkt =  knot_pkt_new(buf, buflen, NULL);
@@ -876,40 +904,38 @@ int remote_process(server_t *s, conf_iface_t *ctl_if, int sock,
 
 	/* Parse packet and answer if OK. */
 	int ret = remote_parse(pkt);
-	if (ret == KNOT_EOK && ctl_if->addr.ss_family != AF_UNIX) {
-
-		/* Check ACL list. */
-		char addr_str[SOCKADDR_STRLEN] = {0};
+	if (ret == KNOT_EOK && ctl_addr->ss_family != AF_UNIX) {
+		char addr_str[SOCKADDR_STRLEN] = { 0 };
 		sockaddr_tostr(addr_str, sizeof(addr_str), &ss);
-		knot_tsig_key_t *tsig_key = NULL;
-		const knot_dname_t *tsig_name = NULL;
+
+		/* Prepare tsig parameters. */
+		knot_tsig_key_t tsig = { NULL };
 		if (pkt->tsig_rr) {
-			tsig_name = pkt->tsig_rr->owner;
+			tsig.name = pkt->tsig_rr->owner;
+			tsig.algorithm = knot_tsig_rdata_alg(pkt->tsig_rr);
 		}
-		conf_iface_t *match = acl_find(&conf()->ctl.allow, &ss, tsig_name);
-		uint16_t ts_rc = 0;
-		uint16_t ts_trc = 0;
-		uint64_t ts_tmsigned = 0;
-		if (match == NULL) {
+
+		/* Check ACL. */
+		rcu_read_lock();
+		conf_val_t acl = conf_get(conf(), C_CTL, C_ACL);
+		bool allowed = acl_allowed(&acl, ACL_ACTION_CNTL, &ss, &tsig);
+		rcu_read_unlock();
+
+		if (!allowed) {
 			log_warning("remote control, denied '%s', "
 			            "no matching ACL", addr_str);
 			remote_senderr(client, pkt->wire, pkt->size);
 			ret = KNOT_EACCES;
 			goto finish;
-		} else {
-			tsig_key = match->key;
 		}
 
 		/* Check TSIG. */
-		if (tsig_key) {
-			if (pkt->tsig_rr == NULL) {
-				log_warning("remote control, denied '%s', "
-				            "key required", addr_str);
-				remote_senderr(client, pkt->wire, pkt->size);
-				ret = KNOT_EACCES;
-				goto finish;
-			}
-			ret = zones_verify_tsig_query(pkt, tsig_key, &ts_rc,
+		if (tsig.name != NULL) {
+			uint16_t ts_rc = 0;
+			uint16_t ts_trc = 0;
+			uint64_t ts_tmsigned = 0;
+
+			ret = zones_verify_tsig_query(pkt, &tsig, &ts_rc,
 			                              &ts_trc, &ts_tmsigned);
 			if (ret != KNOT_EOK) {
 				log_warning("remote control, denied '%s', "

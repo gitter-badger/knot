@@ -55,10 +55,11 @@ static const lookup_table_t opts[] = {
 	};
 
 static const yp_item_t static_scheme[] = {
-	{ C_OPT,      YP_TOPT, YP_VOPT = { opts } },
-	{ C_GRP,      YP_TGRP, YP_VGRP = { group } },
-	{ C_MULTIGRP, YP_TGRP, YP_VGRP = { multi_group }, YP_FMULTI },
-	{ C_REF,      YP_TREF, YP_VREF = { C_MULTIGRP } },
+	{ C_OPT,      YP_TOPT,  YP_VOPT = { opts } },
+	{ C_BOOL,     YP_TBOOL, YP_VNONE },
+	{ C_GRP,      YP_TGRP,  YP_VGRP = { group } },
+	{ C_MULTIGRP, YP_TGRP,  YP_VGRP = { multi_group }, YP_FMULTI },
+	{ C_REF,      YP_TREF,  YP_VREF = { C_MULTIGRP } },
 	{ NULL }
 };
 
@@ -79,6 +80,9 @@ int main(int argc, char *argv[])
 
 	yp_check_ctx_t *ctx = yp_scheme_check_init(scheme);
 	ok(ctx != NULL, "create check ctx");
+	if (ctx == NULL) {
+		goto skip_all;
+	}
 
 	/* Key0 test. */
 	str = "option: one";
@@ -92,6 +96,31 @@ int main(int argc, char *argv[])
 	ok(strcmp(ctx->key0->name + 1, "option") == 0, "name check");
 	ok(ctx->key0->type == YP_TOPT, "type check");
 	ok(yp_opt(ctx->data) == 1, "value check");
+
+	/* Boolean test. */
+	str = "bool: true\nbool: on\nbool: false\nbool: off";
+	ret = yp_set_input_string(yp, str, strlen(str));
+	ok(ret == KNOT_EOK, "set input string");
+	for (int i = 0; i < 2; i++) {
+		ret = yp_parse(yp);
+		ok(ret == KNOT_EOK, "parse");
+		ret = yp_scheme_check_parser(ctx, yp);
+		ok(ret == KNOT_EOK, "check parser");
+		ok(ctx->event == YP_EKEY0, "event check");
+		ok(strcmp(ctx->key0->name + 1, "bool") == 0, "name check");
+		ok(ctx->key0->type == YP_TBOOL, "type check");
+		ok(yp_bool(ctx->data_len) == true, "value check");
+	}
+	for (int i = 0; i < 2; i++) {
+		ret = yp_parse(yp);
+		ok(ret == KNOT_EOK, "parse");
+		ret = yp_scheme_check_parser(ctx, yp);
+		ok(ret == KNOT_EOK, "check parser");
+		ok(ctx->event == YP_EKEY0, "event check");
+		ok(strcmp(ctx->key0->name + 1, "bool") == 0, "name check");
+		ok(ctx->key0->type == YP_TBOOL, "type check");
+		ok(yp_bool(ctx->data_len) == false, "value check");
+	}
 
 	/* Group test. */
 	str = "group:\n integer: 20\n string: [short, \"long string\"]";
@@ -170,14 +199,21 @@ int main(int argc, char *argv[])
 	/* Scheme find tests. */
 	const yp_item_t *i = yp_scheme_find(C_OPT, NULL, scheme);
 	ok(i != NULL, "scheme find");
+	if (i == NULL) {
+		goto skip_all;
+	}
 	ok(strcmp(i->name + 1, "option") == 0, "name check");
 	i = yp_scheme_find(C_STR, C_GRP, scheme);
 	ok(i != NULL, "scheme find");
+	if (i == NULL) {
+		goto skip_all;
+	}
 	ok(strcmp(i->name + 1, "string") == 0, "name check");
 
 	yp_scheme_check_deinit(ctx);
 	yp_deinit(yp);
 	yp_scheme_free(scheme);
 
+skip_all:
 	return 0;
 }
