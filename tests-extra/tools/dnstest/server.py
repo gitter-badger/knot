@@ -867,13 +867,13 @@ class Knot(Server):
         s.item_str("address", self.addr)
         if self.tsig:
             s.item_str("key", self.tsig.name)
-        s.item("action", "[xfer, notify, update]")
+        s.item("action", "[transfer, notify, update]")
 
         s.id_item("id", "acl_test")
         s.item_str("address", self.addr)
         if self.tsig_test:
             s.item_str("key", self.tsig_test.name)
-        s.item("action", "[xfer, notify, update]")
+        s.item("action", "[transfer, notify, update]")
 
         servers = set() # Duplicity check.
         for zone in sorted(self.zones):
@@ -892,7 +892,7 @@ class Knot(Server):
                 s.item_str("address", slave.addr)
                 if slave.tsig:
                     s.item_str("key", slave.tsig.name)
-                s.item("action", "xfer")
+                s.item("action", "transfer")
                 servers.add(slave.name)
         s.end()
 
@@ -921,7 +921,7 @@ class Knot(Server):
         if self.disable_any:
             s.item_str("disable-any", "on")
         if self.dnssec_enable:
-            s.item_str("dnssec-keydir", self.keydir)
+            s.item_str("kasp-db", self.keydir)
             s.item_str("dnssec-enable", "on")
         if len(self.modules) > 0:
             modules = ""
@@ -973,7 +973,7 @@ class Knot(Server):
         s.end()
 
         s.begin("log")
-        s.id_item("to", "stdout")
+        s.id_item("target", "stdout")
         s.item_str("any", "debug")
         s.end()
 

@@ -359,7 +359,7 @@ Access control list rules definition.
    - id: STR
      address: ADDR[/INT]
      key: key_id
-     action: deny | xfer | notify | update | control ...
+     action: deny | transfer | notify | update ...
 
 .. _acl_id:
 
@@ -397,10 +397,9 @@ An ordered list of allowed actions.
 Possible values:
 
 - ``deny`` - Block the matching query
-- ``xfer`` - Allow zone transfer
+- ``transfer`` - Allow zone transfer
 - ``notify`` - Allow incoming notify
 - ``update`` - Allow zone updates
-- ``control`` - Allow remote control
 
 Default: deny
 
@@ -411,15 +410,14 @@ Control section
 
 Configuration of the server remote control.
 
-Caution: The control protocol is not encrypted, and susceptible to replay
-attacks in a short timeframe until message digest expires, for that reason,
+Caution: The control protocol is not encrypted and is susceptible to replay
+attacks in a short timeframe until message digest expires. For that reason,
 it is recommended to use default UNIX socket.
 
 ::
 
  control:
      listen: ADDR[@INT]
-     acl: acl_id ...
 
 .. _control_listen:
 
@@ -433,16 +431,6 @@ address using ``@`` separator.
 Default: :ref:`rundir<server_rundir>`/knot.sock
 
 .. _control_acl:
-
-acl
----
-
-An ordered list of :ref:`references<acl_id>` to ACL rules allowing the remote
-control.
-
-Caution: This option has no effect with UNIX socket.
-
-Default: empty
 
 .. _Remote section:
 
@@ -524,7 +512,7 @@ configuration if a zone doesn't have a teplate specified.
      ixfr-from-differences: BOOL
      ixfr-fslimit: SIZE
      dnssec-enable: BOOL
-     dnssec-keydir: STR
+     kasp-db: STR
      signature-lifetime: TIME
      serial-policy: increment | unixtime
      module: STR/STR ...
@@ -689,13 +677,13 @@ If enabled, automatic DNSSEC signing for the zone is turned on.
 
 Default: off
 
-.. _template_dnssec-keydir:
+.. _template_kasp_db:
 
-dnssec-keydir
--------------
+kasp_db
+-------
 
-A data directory for storing DNSSEC signing keys. Non absolute path is
-relative to :ref:`storage<template_storage>`.
+A KASP database path. Non absolute path is relative to
+:ref:`storage<template_storage>`.
 
 Default: :ref:`storage<template_storage>`/keys
 
@@ -819,15 +807,15 @@ will be logged to both standard error output and syslog. The ``info`` and
 ::
 
  log:
-   - to: stdout | stderr | syslog | STR
+   - target: stdout | stderr | syslog | STR
      server: critical | error | warning | notice | info | debug
      zone: critical | error | warning | notice | info | debug
      any: critical | error | warning | notice | info | debug
 
-.. _log_to:
+.. _log_target:
 
-to
---
+target
+------
 
 A logging output.
 
@@ -913,9 +901,9 @@ given prefix and subnet.
    - id: STR
      type: forward | reverse
      prefix: STR
-     zone: DNAME
+     origin: DNAME
      ttl: INT
-     address: ADDR[/INT]
+     network: ADDR[/INT]
 
 .. _mod-synth-record_id:
 
@@ -950,12 +938,12 @@ separated with a dash.
 
 Default: empty
 
-.. _mod-synth-record_zone:
+.. _mod-synth-record_origin:
 
-zone
-----
+origin
+------
 
-A zone name suffix (only valid for :ref:`reverse type<mod-synth-record_type>`).
+A zone origin (only valid for :ref:`reverse type<mod-synth-record_type>`).
 
 Default: empty
 
@@ -968,9 +956,9 @@ Time to live of the generated records.
 
 Default: 3600
 
-.. _mod-synth-record_address:
+.. _mod-synth-record_network:
 
-address
+network
 -------
 
 A network subnet in the form of *address/prefix*.

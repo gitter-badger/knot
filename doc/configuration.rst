@@ -22,7 +22,7 @@ which can be used as a base for your Knot DNS setup::
         file: example.com.zone
 
     log:
-      - to: syslog
+      - target: syslog
         any: info
 
 Now let's go step by step through this configuration:
@@ -92,7 +92,7 @@ network subnet. Also a TSIG key can be specified::
 
       - id: subnet_rule
         address: 192.168.2.0/24   # Network subnet
-        action: xfer              # Allow zone transfers
+        action: transfer          # Allow zone transfers
 
       - id: deny_rule
         address: 192.168.2.100    # Negative match
@@ -100,10 +100,9 @@ network subnet. Also a TSIG key can be specified::
 
       - id: key_rule
         key: key1                 # Access based just on TSIG key
-        action: xfer
+        action: transfer
 
-Then the rules are referenced from zone :ref:`template_acl` or from
-control :ref:`control_acl`::
+These rules can then be referenced from a zone :ref:`template_acl`::
 
     zone:
       - domain: example.com
@@ -164,7 +163,7 @@ configured in a proper ACL rule::
 Master zone
 ===========
 
-An ACL with the ``xfer`` action must be configured to allow outgoing zone
+An ACL with the ``transfer`` action must be configured to allow outgoing zone
 transfers. An ACL rule consists of a single address or a network subnet::
 
     remote:
@@ -174,11 +173,11 @@ transfers. An ACL rule consists of a single address or a network subnet::
     acl:
       - id: slave1_acl
         address: 192.168.2.1
-        action: xfer
+        action: transfer
 
       - id: others_acl
         address: 192.168.3.0/24
-        action: xfer
+        action: transfer
 
     zone:
       - domain: example.com
@@ -203,11 +202,11 @@ Optionally a TSIG key can be specified::
       - id: slave1_acl
         address: 192.168.2.1
         key: slave1_key
-        action: xfer
+        action: transfer
 
       - id: others_acl
         address: 192.168.3.0/24
-        action: xfer
+        action: transfer
 
 Dynamic updates
 ===============
@@ -272,7 +271,7 @@ can operate in two modes:
    No zone operator intervention is necessary.
 
 The DNSSEC signing is controlled by the :ref:`template_dnssec-enable` and
-:ref:`template_dnssec-keydir` configuration options. The first option states
+:ref:`template_kasp_db` configuration options. The first option states
 if the signing is enabled for a particular zone, the second option points to
 a KASP database holding the signing configuration.
 
@@ -288,7 +287,7 @@ default template, but the signing is explicitly disabled for zone
     template:
       - id: default
         dnssec-enable: on
-        dnssec-keydir: /var/lib/knot/kasp
+        kasp-db: /var/lib/knot/kasp
 
     zone:
       - domain: example.com
@@ -357,7 +356,7 @@ The configuration fragment might look similar to::
   template:
     - id: default
       storage: /var/lib/knot
-      dnssec-keydir: kasp
+      kasp-db: kasp
 
   zone:
     - domain: myzone.test
@@ -617,7 +616,7 @@ Example::
        type: forward
        prefix: dynamic-
        ttl: 400
-       address: 2620:0:b61::/52
+       network: 2620:0:b61::/52
 
    zone:
      - domain: example.
@@ -655,9 +654,9 @@ Example::
      - id: test2
        type: reverse
        prefix: dynamic-
-       zone: example
+       origin: example
        ttl: 400
-       address: 2620:0:b61::/52
+       network: 2620:0:b61::/52
 
    zone:
      - domain: 1.6.b.0.0.0.0.0.0.2.6.2.ip6.arpa.
@@ -678,7 +677,7 @@ Limitations
 ^^^^^^^^^^^
 
 * As of now, there is no authenticated denial of nonexistence (neither
-  NSEC or NSEC3 is supported) nor DNSSEC signed records.  However,
+  NSEC or NSEC3 is supported) nor DNSSEC signed records. However,
   since the module is hooked in the query processing plan, it will be
   possible to do online signing in the future.
 

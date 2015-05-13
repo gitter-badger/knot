@@ -49,10 +49,9 @@ static const lookup_table_t key_algs[] = {
 
 static const lookup_table_t acl_actions[] = {
 	{ ACL_ACTION_DENY, "deny" },
-	{ ACL_ACTION_XFER, "xfer" },
+	{ ACL_ACTION_XFER, "transfer" },
 	{ ACL_ACTION_NOTF, "notify" },
 	{ ACL_ACTION_DDNS, "update" },
-	{ ACL_ACTION_CNTL, "control" },
 	{ 0, NULL }
 };
 
@@ -118,7 +117,6 @@ static const yp_item_t desc_acl[] = {
 
 static const yp_item_t desc_control[] = {
 	{ C_LISTEN,  YP_TADDR, YP_VADDR = { REMOTE_PORT, REMOTE_SOCKET } },
-	{ C_ACL,     YP_TREF,  YP_VREF = { C_ACL }, YP_FMULTI, { check_ref } },
 	{ C_COMMENT, YP_TSTR,  YP_VNONE },
 	{ NULL }
 };
@@ -145,7 +143,7 @@ static const yp_item_t desc_remote[] = {
 	{ C_IXFR_DIFF,      YP_TBOOL, YP_VNONE }, \
 	{ C_IXFR_FSLIMIT,   YP_TINT,  YP_VINT = { 0, INT64_MAX, INT64_MAX, YP_SSIZE } }, \
 	{ C_DNSSEC_ENABLE,  YP_TBOOL, YP_VNONE }, \
-	{ C_DNSSEC_KEYDIR,  YP_TSTR,  YP_VSTR = { "keys" } }, \
+	{ C_KASP_DB,        YP_TSTR,  YP_VSTR = { "keys" } }, \
 	{ C_SIG_LIFETIME,   YP_TINT,  YP_VINT = { 3 * 3600, INT32_MAX, 30 * 24 * 3600, YP_STIME } }, \
 	{ C_SERIAL_POLICY,  YP_TOPT,  YP_VOPT = { serial_policies, SERIAL_POLICY_INCREMENT } }, \
 	{ C_MODULE,         YP_TDATA, YP_VDATA = { 0, NULL, mod_id_to_bin, mod_id_to_txt }, \
@@ -167,7 +165,7 @@ static const yp_item_t desc_zone[] = {
 };
 
 static const yp_item_t desc_log[] = {
-	{ C_TO,      YP_TSTR, YP_VNONE },
+	{ C_TARGET,  YP_TSTR, YP_VNONE },
 	{ C_SERVER,  YP_TOPT, YP_VOPT = { log_severities, 0 } },
 	{ C_ZONE,    YP_TOPT, YP_VOPT = { log_severities, 0 } },
 	{ C_ANY,     YP_TOPT, YP_VOPT = { log_severities, 0 } },
@@ -177,10 +175,10 @@ static const yp_item_t desc_log[] = {
 
 const yp_item_t conf_scheme[] = {
 	{ C_SRV,  YP_TGRP, YP_VGRP = { desc_server } },
+	{ C_CTL,  YP_TGRP, YP_VGRP = { desc_control } },
 	{ C_LOG,  YP_TGRP, YP_VGRP = { desc_log }, YP_FMULTI },
 	{ C_KEY,  YP_TGRP, YP_VGRP = { desc_key }, YP_FMULTI },
 	{ C_ACL,  YP_TGRP, YP_VGRP = { desc_acl }, YP_FMULTI },
-	{ C_CTL,  YP_TGRP, YP_VGRP = { desc_control } },
 	{ C_RMT,  YP_TGRP, YP_VGRP = { desc_remote }, YP_FMULTI },
 /* MODULES */
 	{ C_MOD_SYNTH_RECORD, YP_TGRP, YP_VGRP = { scheme_mod_synth_record }, YP_FMULTI },
