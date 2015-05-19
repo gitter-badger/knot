@@ -29,14 +29,12 @@
 /* Defines */
 #define LMDB_DIR_MODE   0770
 #define LMDB_FILE_MODE  0660
-/*! Minimum number of pages to keep clear. It's not guaranteed to actually  
- * keep this many - it depends on the size of the last entry. 
- * 24 is a guesstimate based on the journal test. There are 8 pages used
- * more than the actual sum of the used pages in the stat structure. Then 
- * we need a page or two for the mdb_drop (actual number of pages is 
- * unknown) and then we reserve some space for last inserted entry that 
- * may be big.*/
-#define CLEAR_PAGE_NO   24
+/*! Minimum number of pages to keep clear.
+ * 16 is a guesstimate based on the journal unittest. There are 8 pages
+ * used more than the actual sum of the used pages in the stat structure
+ * and then we need a page or two for the mdb_drop (actual number
+ * of pages is unknown).*/
+#define CLEAR_PAGE_NO   16
 
 
 const unsigned NAMEDB_LMDB_NOTLS = MDB_NOTLS;
@@ -442,8 +440,11 @@ static int insert(namedb_txn_t *txn, namedb_val_t *key, namedb_val_t *val, unsig
 		return lmdb_error_to_knot(ret);
 	}
 	
-	if (stat.ms_branch_pages + stat.ms_leaf_pages + stat.ms_overflow_pages
-	    + CLEAR_PAGE_NO >= (envinfo.me_mapsize / stat.ms_psize)) {
+	/* Guarantee there is enough space for erasing records from the DB. */
+	size_t used_pages = stat.ms_branch_pages + stat.ms_leaf_pages + stat.ms_overflow_pages;
+	size_t data_pages = val->len / stat.ms_psize;
+	size_t total_pages = envinfo.me_mapsize / stat.ms_psize;
+	if (used_pages + data_pages + CLEAR_PAGE_NO >= total_pages) {
 		return KNOT_EBUSY;
 	}
 	
