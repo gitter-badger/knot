@@ -143,6 +143,32 @@ static bool changesets_eq(const changeset_t *ch1, changeset_t *ch2)
 	return ret;
 }
 
+/*! \brief Compare two lists of changesets. */
+static bool changesets_list_eq(list_t *l1, list_t *l2)
+{
+	node_t *n = NULL;
+	node_t *k = HEAD(*l2);
+	WALK_LIST(n, *l1) {
+		if (k == NULL) {
+			return false;
+		}
+
+		changeset_t *ch1 = (changeset_t *) n;
+		changeset_t *ch2 = (changeset_t *) k;
+		if (!changesets_eq(ch1, ch2)) {
+			return false;
+		}
+
+		k = k->next;
+	}
+
+	if (k->next != NULL) {
+		return false;
+	}
+
+	return true;
+}
+
 /*! \brief Test a list of changesets for continuity. */
 static bool test_continuity(list_t *l)
 {
@@ -175,39 +201,70 @@ static void test_store_load(char *jfilename)
 	zone_t z = { .name = apex };
 
 	/* Save and load changeset. */
-	changeset_t ch;
-	init_random_changeset(&ch, 0, 1, 128, apex);
-	int ret = journal_store_changeset(j, &ch);
+	changeset_t *m_ch = changeset_new(apex);
+	init_random_changeset(m_ch, 0, 1, 128, apex);
+	int ret = journal_store_changeset(j, m_ch);
 	ok(ret == KNOT_EOK, "journal: store changeset");
-	list_t l;
+	list_t l, k;
 	init_list(&l);
+	init_list(&k);
 	ret = journal_load_changesets(j, z.name, &l, 0);
-	ok(ret == KNOT_EOK && changesets_eq(TAIL(l), &ch), "journal: load changeset");
-	changeset_clear(&ch);
+	add_tail(&k, &m_ch->n);
+	ok(ret == KNOT_EOK && changesets_list_eq(&l, &k), "journal: load changeset");
+
 	changesets_free(&l);
+	changeset_free(m_ch);
+	/* Flush the journal. */
+	ret = journal_mark_synced(j);
+	ok(ret == KNOT_EOK, "journal: first and simple flush");
 	init_list(&l);
+	init_list(&k);
 
 	/* Fill the journal. */
 	ret = KNOT_EOK;
 	uint32_t serial = 1;
 	for (; ret == KNOT_EOK; ++serial) {
-		init_random_changeset(&ch, serial, serial + 1, 128, apex);
-		ret = journal_store_changeset(j, &ch);
-		changeset_clear(&ch);
+		m_ch = changeset_new(apex);
+		init_random_changeset(m_ch, serial, serial + 1, 128, apex);
+		ret = journal_store_changeset(j, m_ch);
+		if (ret != KNOT_EOK) {
+			break;
+		}
+		add_tail(&k, &m_ch->n);
 	}
 	ok(ret == KNOT_EBUSY, "journal: overfill with changesets (%d inserted)", serial);
 
 	/* Load all changesets stored until now. */
 	serial--;
-	ret = journal_load_changesets(j, z.name, &l, 0);
+	ret = journal_load_changesets(j, z.name, &l, 1);
+	ok(ret == KNOT_EOK && changesets_list_eq(&l, &k), "journal: load changesets");
+
+	int i;
+	for (i = 0; i < 2000; ++i) {
+		changesets_free(&l);
+		init_list(&l);
+		ret = journal_load_changesets(j, z.name, &l, 1);
+		ok(ret == KNOT_EOK && changesets_list_eq(&l, &k), "journal: re-load changesets");
+		if (ret != KNOT_EOK) {
+			break;
+		}
+	}
+
 	changesets_free(&l);
-	ok(ret == KNOT_EOK, "journal: load changesets");
+	changesets_free(&k);
+	init_list(&l);
+	init_list(&k);
 
 	/* Flush the journal. */
 	ret = journal_mark_synced(j);
-	ok(ret == KNOT_EOK, "journal: flush");
+	ok(ret == KNOT_EOK, "journal: second flush");
 	
+	/* Test whether the journal really flushed (at least the first changeset). */
+	ret = journal_load_changesets(j, z.name, &l, 1);
+	ok(ret == KNOT_ENOENT, "journal: load right after flush");
+
 	/* Store next changeset. */
+	changeset_t ch;
 	init_random_changeset(&ch, serial, serial + 1, 128, apex);
 	ret = journal_store_changeset(j, &ch);
 		changeset_clear(&ch);
@@ -226,7 +283,6 @@ static void test_store_load(char *jfilename)
 	/* Fill the journal using a list. */
 	ret = KNOT_EOK;
 	uint32_t m_serial = 1;
-	changeset_t *m_ch;
 	for (; m_serial < serial / 2; ++m_serial) {
 		m_ch = changeset_new(apex);
 		init_random_changeset(m_ch, m_serial, m_serial + 1, 128, apex);
