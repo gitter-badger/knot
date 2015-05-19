@@ -156,10 +156,10 @@ int zone_changes_store(zone_t *zone, list_t *chgs)
 	char *journal_file = conf_journalfile(conf(), zone->name);
 
 	int ret = zone_init_journal(zone, journal_file, ixfr_fslimit);
+	free(journal_file);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
-	free(journal_file);
 
 	pthread_mutex_lock(&zone->journal_lock);
 	ret = journal_store_changesets(zone->journal, chgs);

@@ -106,6 +106,7 @@ int zone_load_journal(conf_t *conf, zone_t *zone, zone_contents_t *contents)
 	init_list(&chgs);
 	
 	int ret = zone_init_journal(zone, journal_name, ixfr_fslimit);
+	free(journal_name);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
@@ -113,7 +114,6 @@ int zone_load_journal(conf_t *conf, zone_t *zone, zone_contents_t *contents)
 	pthread_mutex_lock(&zone->journal_lock);
 	ret = journal_load_changesets(zone->journal, zone->name, &chgs, serial);
 	pthread_mutex_unlock(&zone->journal_lock);
-	free(journal_name);
 
 	if ((ret != KNOT_EOK && ret != KNOT_ERANGE) || EMPTY_LIST(chgs)) {
 		changesets_free(&chgs);
