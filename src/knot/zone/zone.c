@@ -230,17 +230,25 @@ void zone_master_rotate(zone_t *zone)
 /*! \brief Synchronize zone file with journal. */
 int zone_init_journal(zone_t *zone, const char *path, size_t fslimit)
 {
+	if (zone->journal != NULL) {
+		return KNOT_EOK; /* Journal is already open. */
+	}
+
 	zone->journal = journal_open(path, fslimit);
 	if (zone->journal == NULL) {
 		return errno;
 	}
-	
+
 	return KNOT_EOK;
 }
 
 /*! \brief Synchronize zone file with journal. */
 int zone_deinit_journal(zone_t *zone)
 {
+	if (zone->journal == NULL) {
+		return KNOT_EOK; /* Journal is already closed. */
+	}
+
 	return journal_close(&zone->journal);
 }
 
