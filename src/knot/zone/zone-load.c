@@ -93,7 +93,7 @@ int zone_load_journal(conf_t *conf, zone_t *zone, zone_contents_t *contents)
 	conf_val_t val = conf_zone_get(conf, C_IXFR_FSLIMIT, zone->name);
 	int64_t ixfr_fslimit = conf_int(&val);
 	char *journal_name = conf_journalfile(conf, zone->name);
-	if (journal_name != NULL || zone_contents_is_empty(contents)) {
+	if (journal_name == NULL || zone_contents_is_empty(contents)) {
 		free(journal_name);
 		return KNOT_EOK;
 	}
