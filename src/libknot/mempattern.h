@@ -27,20 +27,33 @@
 #pragma once
 
 #include <stddef.h>
-#include "libknot/mempattern.h"
 
 /* Default memory block size. */
 #define MM_DEFAULT_BLKSIZE 4096
 
-#define mm_alloc_t knot_mm_alloc_t
-#define mm_free_t knot_mm_free_t
-#define mm_flush_t knot_mm_flush_t
-#define mm_ctx knot_mm_ctx
-#define mm_ctx_t knot_mm_ctx_t
-#define mm_alloc knot_mm_alloc
-#define mm_realloc knot_mm_realloc
-#define mm_free knot_mm_free
-#define mm_ctx_init knot_mm_ctx_init
-#define mm_ctx_mempool knot_mm_ctx_mempool
+/* Memory allocation function prototypes. */
+typedef void* (*knot_mm_alloc_t)(void* ctx, size_t len);
+typedef void (*knot_mm_free_t)(void *p);
+typedef void (*knot_mm_flush_t)(void *p);
+
+/*! \brief Memory allocation context. */
+typedef struct knot_mm_ctx {
+	void *ctx; /* \note Must be first */
+	knot_mm_alloc_t alloc;
+	knot_mm_free_t free;
+} knot_mm_ctx_t;
+
+/*! \brief Allocs using 'mm' if any, uses system malloc() otherwise. */
+void *knot_mm_alloc(knot_mm_ctx_t *mm, size_t size);
+/*! \brief Reallocs using 'mm' if any, uses system realloc() otherwise. */
+void *knot_mm_realloc(knot_mm_ctx_t *mm, void *what, size_t size, size_t prev_size);
+/*! \brief Free using 'mm' if any, uses system free() otherwise. */
+void knot_mm_free(knot_mm_ctx_t *mm, void *what);
+
+/*! \brief Initialize default memory allocation context. */
+void knot_mm_ctx_init(knot_mm_ctx_t *mm);
+
+/*! \brief Memory pool context. */
+void knot_mm_ctx_mempool(knot_mm_ctx_t *mm, size_t chunk_size);
 
 /*! @} */
