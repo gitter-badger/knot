@@ -22,10 +22,13 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
 #pragma once
 
 #include "knot/nameserver/query_module.h"
+
+/*! \brief Module scheme. */
+#define C_MOD_DNSTAP "\x0A""mod-dnstap"
+extern const yp_item_t scheme_mod_dnstap[];
 
 /*! \brief Module interface. */
 int dnstap_load(struct query_plan *plan, struct query_module *self);

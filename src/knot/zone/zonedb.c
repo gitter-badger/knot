@@ -27,10 +27,10 @@
 #include "libknot/packet/wire.h"
 #include "knot/zone/node.h"
 #include "knot/common/debug.h"
+#include "libknot/internal/errcode.h"
 #include "libknot/internal/mempattern.h"
 #include "libknot/internal/mempool.h"
 #include "libknot/internal/macros.h"
-
 
 /*----------------------------------------------------------------------------*/
 /* Non-API functions                                                          */

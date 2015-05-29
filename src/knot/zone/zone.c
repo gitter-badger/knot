@@ -18,11 +18,13 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <urcu.h>
 
 #include "dnssec/random.h"
 #include "libknot/descriptor.h"
 #include "knot/common/evsched.h"
 #include "libknot/internal/lists.h"
+#include "knot/common/log.h"
 #include "knot/common/trim.h"
 #include "knot/zone/node.h"
 #include "knot/zone/serial.h"
@@ -32,10 +34,13 @@
 #include "knot/updates/apply.h"
 #include "libknot/processing/requestor.h"
 #include "knot/nameserver/process_query.h"
-#include "libknot/errcode.h"
+#include "libknot/libknot.h"
 #include "libknot/dname.h"
 #include "libknot/internal/utils.h"
+#include "libknot/internal/mem.h"
 #include "libknot/rrtype/soa.h"
+
+#define JOURNAL_SUFFIX	".diff.db"
 
 static void free_ddns_queue(zone_t *z)
 {
@@ -49,27 +54,19 @@ static void free_ddns_queue(zone_t *z)
 	}
 }
 
-zone_t* zone_new(conf_zone_t *conf)
+zone_t* zone_new(const knot_dname_t *name)
 {
-	if (!conf) {
-		return NULL;
-	}
-
 	zone_t *zone = malloc(sizeof(zone_t));
 	if (zone == NULL) {
 		return NULL;
 	}
 	memset(zone, 0, sizeof(zone_t));
 
-	zone->name = knot_dname_from_str_alloc(conf->name);
-	knot_dname_to_lower(zone->name);
+	zone->name = knot_dname_copy(name, NULL);
 	if (zone->name == NULL) {
 		free(zone);
 		return NULL;
 	}
-
-	// Configuration
-	zone->conf = conf;
 
 	// DDNS
 	pthread_mutex_init(&zone->ddns_lock, NULL);
@@ -101,11 +98,13 @@ void zone_free(zone_t **zone_ptr)
 	pthread_mutex_destroy(&zone->ddns_lock);
 	pthread_mutex_destroy(&zone->journal_lock);
 
-	/* Free assigned config. */
-	conf_free_zone(zone->conf);
-
 	/* Free zone contents. */
 	zone_contents_deep_free(&zone->contents);
+
+	if (zone->query_plan != NULL) {
+		conf_deactivate_modules(conf(), &zone->query_modules,
+		                        zone->query_plan);
+	}
 
 	free(zone);
 	*zone_ptr = NULL;
@@ -118,20 +117,24 @@ int zone_change_store(zone_t *zone, changeset_t *change)
 	}
 	assert(zone);
 
-	conf_zone_t *conf = zone->conf;
+	conf_val_t val = conf_zone_get(conf(), C_MAX_JOURNAL_SIZE, zone->name);
+	int64_t ixfr_fslimit = conf_int(&val);
+	char *journal_file = conf_journalfile(conf(), zone->name);
 
 	pthread_mutex_lock(&zone->journal_lock);
-	int ret = journal_store_changeset(change, conf->ixfr_db, conf->ixfr_fslimit);
+	int ret = journal_store_changeset(change, journal_file, ixfr_fslimit);
 	if (ret == KNOT_EBUSY) {
 		log_zone_notice(zone->name, "journal is full, flushing");
 
 		/* Transaction rolled back, journal released, we may flush. */
 		ret = zone_flush_journal(zone);
 		if (ret == KNOT_EOK) {
-			ret = journal_store_changeset(change, conf->ixfr_db, conf->ixfr_fslimit);
+			ret = journal_store_changeset(change, journal_file, ixfr_fslimit);
 		}
 	}
 	pthread_mutex_unlock(&zone->journal_lock);
+
+	free(journal_file);
 
 	return ret;
 }
@@ -149,29 +152,35 @@ zone_contents_t *zone_switch_contents(zone_t *zone, zone_contents_t *new_content
 	return old_contents;
 }
 
-const conf_iface_t *zone_master(const zone_t *zone)
+bool zone_is_master(const zone_t *zone)
 {
-	if (zone == NULL) {
-		return NULL;
-	}
-
-	if (EMPTY_LIST(zone->conf->acl.xfr_in)) {
-		return NULL;
-	}
-
-	conf_remote_t *master = HEAD(zone->conf->acl.xfr_in);
-	return master->remote;
+	conf_val_t val = conf_zone_get(conf(), C_MASTER, zone->name);
+	return conf_val_count(&val) > 0 ? false : true;
 }
 
-void zone_master_rotate(const zone_t *zone)
+conf_remote_t zone_master(const zone_t *zone)
 {
+	conf_val_t val = conf_zone_get(conf(), C_MASTER, zone->name);
 
-	list_t *master_list = &zone->conf->acl.xfr_in;
-	if (list_size(master_list) < 2) {
-		return;
+	/* Seek the current master if possible. */
+	if (zone->master_index < conf_val_count(&val)) {
+		for (size_t index = 0; index < zone->master_index; index++) {
+			conf_val_next(&val);
+		}
 	}
 
-	add_tail(master_list, HEAD(*master_list));
+	return conf_remote(conf(), &val);
+}
+
+void zone_master_rotate(zone_t *zone)
+{
+	conf_val_t val = conf_zone_get(conf(), C_MASTER, zone->name);
+
+	if (zone->master_index + 2 <= conf_val_count(&val)) {
+		zone->master_index += 1;
+	} else {
+		zone->master_index = 0;
+	}
 }
 
 int zone_flush_journal(zone_t *zone)
@@ -196,14 +205,16 @@ int zone_flush_journal(zone_t *zone)
 
 	/* Fetch zone source (where it came from). */
 	const struct sockaddr_storage *from = NULL;
-	const conf_iface_t *master = zone_master(zone);
-	if (master != NULL) {
-		from = &master->addr;
+	conf_remote_t master;
+	if (!zone_is_master(zone)) {
+		master = zone_master(zone);
+		from = &master.addr;
 	}
 
+	char *zonefile = conf_zonefile(conf(), zone->name);
+
 	/* Synchronize journal. */
-	conf_zone_t *conf = zone->conf;
-	ret = zonefile_write(conf->file, &zr, from);
+	ret = zonefile_write(zonefile, &zr, from);
 	zone_read_done(&zr);
 	if (ret == KNOT_EOK) {
 		log_zone_info(zone->name, "zone file updated, serial %u -> %u",
@@ -211,21 +222,29 @@ int zone_flush_journal(zone_t *zone)
 	} else {
 		log_zone_warning(zone->name, "failed to update zone file (%s)",
 		                 knot_strerror(ret));
+		free(zonefile);
 		return ret;
 	}
 
 	/* Update zone version. */
 	struct stat st;
-	if (stat(zone->conf->file, &st) < 0) {
+	if (stat(zonefile, &st) < 0) {
 		log_zone_warning(zone->name, "failed to update zone file (%s)",
 		                 knot_strerror(KNOT_EACCES));
+		free(zonefile);
 		return KNOT_EACCES;
 	}
+
+	free(zonefile);
+
+	char *journal_file = conf_journalfile(conf(), zone->name);
 
 	/* Update zone file serial and journal. */
 	zone->zonefile_mtime = st.st_mtime;
 	zone->zonefile_serial = serial_to;
-	journal_mark_synced(zone->conf->ixfr_db);
+	journal_mark_synced(journal_file);
+
+	free(journal_file);
 
 	/* Trim extra heap. */
 	mem_trim();
@@ -299,12 +318,15 @@ bool zone_transfer_needed(const zone_t *zone, const knot_pkt_t *pkt)
 	}
 
 	const knot_pktsection_t *answer = knot_pkt_section(pkt, KNOT_ANSWER);
-	const knot_rrset_t soa = answer->rr[0];
-	if (soa.type != KNOT_RRTYPE_SOA) {
+	if (answer->count < 1) {
+		return false;
+	}
+
+	const knot_rrset_t *soa = knot_pkt_rr(answer, 0);
+	if (soa->type != KNOT_RRTYPE_SOA) {
 		return false;
 	}
 
 	return serial_compare(zone_contents_serial(zone->contents),
-	                           knot_soa_serial(&soa.rrs)) < 0;
+	                           knot_soa_serial(&soa->rrs)) < 0;
 }
-

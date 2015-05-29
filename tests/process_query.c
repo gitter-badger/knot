@@ -50,18 +50,18 @@ static void exec_query(knot_layer_t *query_ctx, const char *name,
 
 	/* Input packet. */
 	knot_pkt_parse(query, 0);
-	int state = knot_layer_in(query_ctx, query);
+	int state = knot_layer_consume(query_ctx, query);
 
-	ok(state & (KNOT_NS_PROC_FULL|KNOT_NS_PROC_FAIL), "ns: process %s query", name);
+	ok(state & (KNOT_STATE_PRODUCE|KNOT_STATE_FAIL), "ns: process %s query", name);
 
 	/* Create answer. */
-	state = knot_layer_out(query_ctx, answer);
-	if (state & KNOT_NS_PROC_FAIL) {
+	state = knot_layer_produce(query_ctx, answer);
+	if (state & KNOT_STATE_FAIL) {
 		/* Allow 1 generic error response. */
-		state = knot_layer_out(query_ctx, answer);
+		state = knot_layer_produce(query_ctx, answer);
 	}
 
-	ok(state == KNOT_NS_PROC_DONE, "ns: answer %s query", name);
+	ok(state == KNOT_STATE_DONE, "ns: answer %s query", name);
 
 	/* Check answer. */
 	answer_sanity_check(query->wire, answer->wire, answer->size, expected_rcode, name);
@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
 	plan(8*6 + 4); /* exec_query = 6 TAP tests */
 
 	mm_ctx_t mm;
-	mm_ctx_mempool(&mm, sizeof(knot_pkt_t));
+	mm_ctx_mempool(&mm, MM_DEFAULT_BLKSIZE);
 
 	/* Create processing context. */
 	knot_layer_t proc;
@@ -167,24 +167,24 @@ int main(int argc, char *argv[])
 	knot_pkt_put_question(query, ROOT_DNAME, KNOT_CLASS_IN, KNOT_RRTYPE_SOA);
 	size_t orig_query_size = query->size;
 	query->size = KNOT_WIRE_HEADER_SIZE - 1;
-	int state = knot_layer_in(&proc, query);
-	ok(state == KNOT_NS_PROC_NOOP, "ns: IN/less-than-header query ignored");
+	int state = knot_layer_consume(&proc, query);
+	ok(state == KNOT_STATE_NOOP, "ns: IN/less-than-header query ignored");
 	query->size = orig_query_size;
 
 	/* Query processor (response, ignore). */
 	knot_layer_reset(&proc);
 	knot_wire_set_qr(query->wire);
-	state = knot_layer_in(&proc, query);
-	ok(state == KNOT_NS_PROC_NOOP, "ns: IN/less-than-header query ignored");
+	state = knot_layer_consume(&proc, query);
+	ok(state == KNOT_STATE_NOOP, "ns: IN/less-than-header query ignored");
 
 	/* Finish. */
 	state = knot_layer_finish(&proc);
-	ok(state == KNOT_NS_PROC_NOOP, "ns: processing end" );
+	ok(state == KNOT_STATE_NOOP, "ns: processing end" );
 
 	/* Cleanup. */
 	mp_delete((struct mempool *)mm.ctx);
 	server_deinit(&server);
-	conf_free(conf());
+	conf_free(conf(), false);
 
 	return 0;
 }

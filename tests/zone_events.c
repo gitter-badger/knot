@@ -16,6 +16,7 @@
 
 #include <tap/basic.h>
 
+#include "libknot/internal/errcode.h"
 #include "knot/common/evsched.h"
 #include "knot/worker/pool.h"
 #include "knot/zone/events/events.h"

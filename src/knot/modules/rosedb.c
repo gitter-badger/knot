@@ -16,12 +16,22 @@
 
 #include <lmdb.h>
 
+#include "dnssec/random.h"
+#include "knot/common/log.h"
 #include "knot/modules/rosedb.h"
 #include "knot/nameserver/process_query.h"
-#include "libknot/rrtype/rdname.h"
-#include "libknot/dnssec/random.h"
-#include "libknot/rrset-dump.h"
+#include "libknot/libknot.h"
 #include "libknot/internal/utils.h"
+
+/* Module configuration scheme. */
+#define MOD_DBDIR		"\x06""dbdir"
+
+const yp_item_t scheme_mod_rosedb[] = {
+	{ C_ID,      YP_TSTR, YP_VNONE },
+	{ MOD_DBDIR, YP_TSTR, YP_VNONE },
+	{ C_COMMENT, YP_TSTR, YP_VNONE },
+	{ NULL }
+};
 
 /*! \note Below is an implementation of basic RR cache in LMDB,
  *        it shall be replaced with the namedb API later, when
@@ -330,7 +340,7 @@ int cache_remove(MDB_txn *txn, MDB_dbi dbi, const knot_dname_t *name)
 #define DEFAULT_PORT 514
 #define SYSLOG_BUFLEN 1024 /* RFC3164, 4.1 message size. */
 #define SYSLOG_FACILITY 3  /* System daemon. */
-#define MODULE_ERR(msg...) log_error("module 'rose', " msg)
+#define MODULE_ERR(msg, ...) log_error("module 'rose', " msg, ##__VA_ARGS__)
 
 /*! \brief Safe stream skipping. */
 static int stream_skip(char **stream, size_t *maxlen, int nbytes)
@@ -346,8 +356,8 @@ static int stream_skip(char **stream, size_t *maxlen, int nbytes)
 }
 
 /*! \brief Stream write with constraints checks. */
-#define STREAM_WRITE(stream, maxlen, fn, args...) \
-	if (stream_skip(&(stream), (maxlen), fn(stream, *(maxlen), args)) != KNOT_EOK) { \
+#define STREAM_WRITE(stream, maxlen, fn, args, ...) \
+	if (stream_skip(&(stream), (maxlen), fn(stream, *(maxlen), args, ##__VA_ARGS__)) != KNOT_EOK) { \
 		return KNOT_ESPACE; \
 	}
 
@@ -399,7 +409,7 @@ static int rosedb_log_message(char *stream, size_t *maxlen, knot_pkt_t *pkt,
 	 */
 	const knot_pktsection_t *ans = knot_pkt_section(pkt, KNOT_ANSWER);
 	if (ans->count > 0) {
-		const knot_rrset_t *rr = &ans->rr[knot_random_uint16_t() % ans->count];
+		const knot_rrset_t *rr = knot_pkt_rr(ans, dnssec_random_uint16_t() % ans->count);
 		int ret = knot_rrset_txt_dump_data(rr, 0, stream, *maxlen, &KNOT_DUMP_STYLE_DEFAULT);
 		if (ret < 0) {
 			return ret;
@@ -419,8 +429,8 @@ static int rosedb_log_message(char *stream, size_t *maxlen, knot_pkt_t *pkt,
 
 	/* Field 19 First authority. */
 	const knot_pktsection_t *ns = knot_pkt_section(pkt, KNOT_AUTHORITY);
-	if (ns->count > 0 && ns->rr[0].type == KNOT_RRTYPE_NS) {
-		const knot_dname_t *label = knot_ns_name(&ns->rr[0].rrs, 0);
+	if (ns->count > 0 && knot_pkt_rr(ns, 0)->type == KNOT_RRTYPE_NS) {
+		const knot_dname_t *label = knot_ns_name(&knot_pkt_rr(ns, 0)->rrs, 0);
 		memset(dname_buf, 0, sizeof(dname_buf));
 		memcpy(dname_buf, label + 1, *label);
 		STREAM_WRITE(stream, maxlen, snprintf, "%s", dname_buf);
@@ -447,7 +457,12 @@ static int rosedb_send_log(int sock, struct sockaddr *dst_addr, knot_pkt_t *pkt,
 	STREAM_WRITE(stream, &maxlen, strftime, "%b %d %H:%M:%S ", &tm);
 
 	/* Host name / Component. */
-	STREAM_WRITE(stream, &maxlen, snprintf, "%s ", conf()->identity);
+	conf_val_t val = conf_get(conf(), C_SRV, C_IDENT);
+	if (val.code != KNOT_EOK || val.len <= 1) {
+		STREAM_WRITE(stream, &maxlen, snprintf, "%s ", conf()->hostname);
+	} else {
+		STREAM_WRITE(stream, &maxlen, snprintf, "%s ", conf_str(&val));
+	}
 	STREAM_WRITE(stream, &maxlen, snprintf, "%s[%lu]: ", PACKAGE_NAME, (unsigned long) getpid());
 
 	/* Prepare log message line. */
@@ -498,7 +513,7 @@ static int rosedb_synth(knot_pkt_t *pkt, const knot_dname_t *key, struct iter *i
 
 	/* Authority section. */
 	knot_pkt_begin(pkt, KNOT_AUTHORITY);
-	
+
 	/* Not found (zone cut if records exist). */
 	ret = cache_iter_begin(it, key);
 	while (ret == KNOT_EOK) {
@@ -564,7 +579,7 @@ static int rosedb_query_txn(MDB_txn *txn, MDB_dbi dbi, knot_pkt_t *pkt, struct q
 static int rosedb_query(int state, knot_pkt_t *pkt, struct query_data *qdata, void *ctx)
 {
 	if (pkt == NULL || qdata == NULL || ctx == NULL) {
-		return KNOT_NS_PROC_FAIL;
+		return KNOT_STATE_FAIL;
 	}
 
 	struct cache *cache = ctx;
@@ -583,24 +598,33 @@ static int rosedb_query(int state, knot_pkt_t *pkt, struct query_data *qdata, vo
 
 	mdb_txn_abort(txn);
 
-	return KNOT_NS_PROC_DONE;
+	return KNOT_STATE_DONE;
 }
 
 int rosedb_load(struct query_plan *plan, struct query_module *self)
 {
-	if (self == NULL || plan == NULL) {
+	if (plan == NULL || self == NULL) {
 		return KNOT_EINVAL;
 	}
-	
-	struct cache *cache = cache_open(self->param, 0, self->mm);
+
+	conf_val_t val = conf_mod_get(self->config, MOD_DBDIR, self->id);
+	if (val.code != KNOT_EOK) {
+		if (val.code == KNOT_EINVAL) {
+			MODULE_ERR("no dbdir for '%s'", self->id->data);
+		}
+		return val.code;
+	}
+	const char *db_dir = conf_str(&val);
+
+	struct cache *cache = cache_open(db_dir, 0, self->mm);
 	if (cache == NULL) {
-		MODULE_ERR("couldn't open db '%s'", self->param);
+		MODULE_ERR("failed to open db '%s'", db_dir);
 		return KNOT_ENOMEM;
 	}
 
 	self->ctx = cache;
 
-	return query_plan_step(plan, QPLAN_BEGIN, rosedb_query, cache);
+	return query_plan_step(plan, QPLAN_BEGIN, rosedb_query, self->ctx);
 }
 
 int rosedb_unload(struct query_module *self)
@@ -612,4 +636,3 @@ int rosedb_unload(struct query_module *self)
 	cache_close(self->ctx);
 	return KNOT_EOK;
 }
-

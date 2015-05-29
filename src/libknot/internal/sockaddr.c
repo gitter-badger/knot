@@ -18,13 +18,19 @@
 #include <string.h>
 #include <netdb.h>
 
+#include "libknot/internal/macros.h"
+#include "libknot/internal/utils.h"
 #include "libknot/internal/sockaddr.h"
-#include "libknot/errcode.h"
+#include "libknot/internal/errcode.h"
 #include "libknot/internal/strlcpy.h"
-#include "libknot/consts.h"
+#include "libknot/internal/consts.h"
 
 int sockaddr_len(const struct sockaddr *ss)
 {
+	if (ss == NULL) {
+		return 0;
+	}
+
 	const struct sockaddr_storage *sa = (const struct sockaddr_storage *)ss;
 	switch(sa->ss_family) {
 	case AF_INET:
@@ -200,10 +206,12 @@ void sockaddr_port_set(struct sockaddr_storage *ss, uint16_t port)
 char *sockaddr_hostname(void)
 {
 	/* Fetch hostname. */
-	char host[KNOT_DNAME_MAXLEN] = {'\0'};
-	if (gethostname(host, KNOT_DNAME_MAXLEN) != 0) {
+	char host[KNOT_DNAME_MAXLEN + 1] = { '\0' };
+	if (gethostname(host, sizeof(host)) != 0) {
 		return NULL;
 	}
+	/* Just to be sure. */
+	host[sizeof(host) - 1] = '\0';
 
 	/* Fetch canonical name for this address/DNS. */
 	struct addrinfo hints, *info = NULL;

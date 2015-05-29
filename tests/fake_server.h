@@ -1,5 +1,6 @@
 #pragma once
 
+#include "test_conf.h"
 #include "knot/server/server.h"
 #include "knot/updates/zone-update.h"
 #include "knot/zone/adjust.h"
@@ -16,7 +17,7 @@ static inline void create_root_zone(server_t *server, mm_ctx_t *mm)
 	/* SOA RDATA. */
 	#define SOA_RDLEN 30
 	static const uint8_t SOA_RDATA[SOA_RDLEN] = {
-	        0x02, 0x6e, 0x73, 0x00,        /* ns. */
+	        0x02, 'n', 's', 0x00,          /* ns. */
 	        0x04, 'm', 'a', 'i', 'l', 0x00,/* mail. */
 	        0x77, 0xdf, 0x1e, 0x63,        /* serial */
 	        0x00, 0x01, 0x51, 0x80,        /* refresh */
@@ -26,11 +27,7 @@ static inline void create_root_zone(server_t *server, mm_ctx_t *mm)
 	};
 
 	/* Insert root zone. */
-	conf_zone_t *conf = malloc(sizeof(conf_zone_t));
-	conf_init_zone(conf);
-	conf->name = strdup(".");
-
-	zone_t *root = zone_new(conf);
+	zone_t *root = zone_new(ROOT_DNAME);
 	root->contents = zone_contents_new(root->name);
 
 	knot_rrset_t *soa = knot_rrset_new(root->name, KNOT_RRTYPE_SOA, KNOT_CLASS_IN, mm);
@@ -61,10 +58,12 @@ static inline int create_fake_server(server_t *server, mm_ctx_t *mm)
 		return ret;
 	}
 
-	/* Create configuration. */
-	s_config = conf_new(strdup("rc:/noconf"));
-	conf()->identity = strdup("bogus.ns");
-	conf()->version = strdup("0.11");
+	/* Load test configuration. */
+	const char *conf_str = 	"server:\n identity: bogus.ns\n version: 0.11\n";
+	ret = test_conf(conf_str, NULL);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
 
 	/* Insert root zone. */
 	create_root_zone(server, mm);

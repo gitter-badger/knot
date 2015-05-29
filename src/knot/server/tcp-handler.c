@@ -24,6 +24,7 @@
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <urcu.h>
 #ifdef HAVE_SYS_UIO_H			// struct iovec (OpenBSD)
 #include <sys/uio.h>
 #endif // HAVE_SYS_UIO_H
@@ -37,6 +38,7 @@
 #include "knot/common/fdset.h"
 #include "knot/common/time.h"
 #include "knot/nameserver/process_query.h"
+#include "libknot/internal/errcode.h"
 #include "libknot/internal/mempool.h"
 #include "libknot/internal/macros.h"
 #include "libknot/internal/net.h"
@@ -50,6 +52,7 @@ typedef struct tcp_context {
 	struct iovec iov[2];        /*!< TX/RX buffers. */
 	unsigned client_threshold;  /*!< Index of first TCP client. */
 	timev_t last_poll_time;     /*!< Time of the last socket poll. */
+	timev_t throttle_end;       /*!< End of accept() throttling. */
 	fdset_t set;                /*!< Set of server/client sockets. */
 	unsigned thread_id;         /*!< Thread identifier. */
 } tcp_context_t;
@@ -57,8 +60,8 @@ typedef struct tcp_context {
 /*
  * Forward decls.
  */
-#define TCP_THROTTLE_LO 5 /*!< Minimum recovery time on errors. */
-#define TCP_THROTTLE_HI 50 /*!< Maximum recovery time on errors. */
+#define TCP_THROTTLE_LO 0 /*!< Minimum recovery time on errors. */
+#define TCP_THROTTLE_HI 2 /*!< Maximum recovery time on errors. */
 
 /*! \brief Calculate TCP throttle time (random). */
 static inline int tcp_throttle() {
@@ -70,23 +73,19 @@ static enum fdset_sweep_state tcp_sweep(fdset_t *set, int i, void *data)
 {
 	UNUSED(data);
 	assert(set && i < set->n && i >= 0);
-
 	int fd = set->pfd[i].fd;
 
+	/* Best-effort, name and shame. */
 	struct sockaddr_storage ss;
 	socklen_t len = sizeof(struct sockaddr_storage);
-	memset(&ss, 0, len);
-	if (getpeername(fd, (struct sockaddr*)&ss, &len) < 0) {
-		dbg_net("tcp: sweep getpeername() on invalid socket=%d\n", fd);
-		return FDSET_SWEEP;
+	if (getpeername(fd, (struct sockaddr*)&ss, &len) == 0) {
+		char addr_str[SOCKADDR_STRLEN] = {0};
+		sockaddr_tostr(addr_str, sizeof(addr_str), &ss);
+		log_notice("TCP, terminated inactive client, address '%s'", addr_str);
 	}
 
-	/* Translate */
-	char addr_str[SOCKADDR_STRLEN] = {0};
-	sockaddr_tostr(addr_str, sizeof(addr_str), &ss);
-
-	log_notice("connection terminated due to inactivity, address '%s'", addr_str);
 	close(fd);
+
 	return FDSET_SWEEP;
 }
 
@@ -114,20 +113,22 @@ static int tcp_handle(tcp_context_t *tcp, int fd,
 	}
 
 	/* Timeout. */
-	struct timeval tmout = { conf()->max_conn_reply, 0 };
+	rcu_read_lock();
+	conf_val_t val = conf_get(conf(), C_SRV, C_TCP_REPLY_TIMEOUT);
+	int64_t max_conn_reply = conf_int(&val);
+	rcu_read_unlock();
+	struct timeval tmout = { max_conn_reply, 0 };
 
 	/* Receive data. */
-	int ret = tcp_recv_msg(fd, rx->iov_base, rx->iov_len, &tmout);
+	struct timeval recv_tmout = tmout;
+	int ret = tcp_recv_msg(fd, rx->iov_base, rx->iov_len, &recv_tmout);
 	if (ret <= 0) {
 		dbg_net("tcp: client on fd=%d disconnected\n", fd);
 		if (ret == KNOT_EAGAIN) {
-			rcu_read_lock();
 			char addr_str[SOCKADDR_STRLEN] = {0};
 			sockaddr_tostr(addr_str, sizeof(addr_str), &ss);
-			log_warning("connection timed out, address '%s', "
-			            "timeout %d seconds",
-			            addr_str, conf()->max_conn_idle);
-			rcu_read_unlock();
+			log_warning("TCP, connection timed out, address '%s'",
+			            addr_str);
 		}
 		return KNOT_ECONNREFUSED;
 	} else {
@@ -144,16 +145,18 @@ static int tcp_handle(tcp_context_t *tcp, int fd,
 	knot_overlay_add(&tcp->overlay, NS_PROC_QUERY, &param);
 
 	/* Input packet. */
-	int state = knot_overlay_in(&tcp->overlay, query);
+	(void) knot_pkt_parse(query, 0);
+	int state = knot_overlay_consume(&tcp->overlay, query);
 
 	/* Resolve until NOOP or finished. */
 	ret = KNOT_EOK;
-	while (state & (KNOT_NS_PROC_FULL|KNOT_NS_PROC_FAIL)) {
-		state = knot_overlay_out(&tcp->overlay, ans);
+	while (state & (KNOT_STATE_PRODUCE|KNOT_STATE_FAIL)) {
+		state = knot_overlay_produce(&tcp->overlay, ans);
 
 		/* Send, if response generation passed and wasn't ignored. */
-		if (ans->size > 0 && !(state & (KNOT_NS_PROC_FAIL|KNOT_NS_PROC_NOOP))) {
-			if (tcp_send_msg(fd, ans->wire, ans->size) != ans->size) {
+		if (ans->size > 0 && !(state & (KNOT_STATE_FAIL|KNOT_STATE_NOOP))) {
+			struct timeval send_tmout = tmout;
+			if (tcp_send_msg(fd, ans->wire, ans->size, &send_tmout) != ans->size) {
 				ret = KNOT_ECONNREFUSED;
 				break;
 			}
@@ -180,29 +183,22 @@ int tcp_accept(int fd)
 	if (incoming < 0) {
 		int en = errno;
 		if (en != EINTR && en != EAGAIN) {
-			log_error("cannot accept connection (%d)", errno);
-			if (en == EMFILE || en == ENFILE ||
-			    en == ENOBUFS || en == ENOMEM) {
-				int throttle = tcp_throttle();
-				log_error("throttling TCP connection pool for "
-				          "%d seconds, too many allocated "
-				          "resources", throttle);
-				sleep(throttle);
-			}
-
+			return KNOT_EBUSY;
 		}
+		return KNOT_ERROR;
 	} else {
 		dbg_net("tcp: accepted connection fd=%d\n", incoming);
 		/* Set recv() timeout. */
 #ifdef SO_RCVTIMEO
 		struct timeval tv;
 		rcu_read_lock();
-		tv.tv_sec = conf()->max_conn_idle;
+		conf_val_t val = conf_get(conf(), C_SRV, C_TCP_IDLE_TIMEOUT);
+		tv.tv_sec = conf_int(&val);
 		rcu_read_unlock();
 		tv.tv_usec = 0;
 		if (setsockopt(incoming, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-			log_warning("cannot set up TCP connection watchdog "
-			            "timer, fd %d", incoming);
+			log_warning("TCP, failed to set up watchdog timer"
+			            ", fd %d", incoming);
 		}
 #endif
 	}
@@ -225,11 +221,14 @@ static int tcp_event_accept(tcp_context_t *tcp, unsigned i)
 
 		/* Update watchdog timer. */
 		rcu_read_lock();
-		fdset_set_watchdog(&tcp->set, next_id, conf()->max_conn_hs);
+		conf_val_t val = conf_get(conf(), C_SRV, C_TCP_HSHAKE_TIMEOUT);
+		fdset_set_watchdog(&tcp->set, next_id, conf_int(&val));
 		rcu_read_unlock();
+
+		return KNOT_EOK;
 	}
 
-	return KNOT_EOK;
+	return client;
 }
 
 static int tcp_event_serve(tcp_context_t *tcp, unsigned i)
@@ -243,7 +242,8 @@ static int tcp_event_serve(tcp_context_t *tcp, unsigned i)
 	if (ret == KNOT_EOK) {
 		/* Update socket activity timer. */
 		rcu_read_lock();
-		fdset_set_watchdog(&tcp->set, i, conf()->max_conn_idle);
+		conf_val_t val = conf_get(conf(), C_SRV, C_TCP_IDLE_TIMEOUT);
+		fdset_set_watchdog(&tcp->set, i, conf_int(&val));
 		rcu_read_unlock();
 	}
 
@@ -258,41 +258,48 @@ static int tcp_wait_for_events(tcp_context_t *tcp)
 
 	/* Mark the time of last poll call. */
 	time_now(&tcp->last_poll_time);
+	bool is_throttled = (tcp->last_poll_time.tv_sec < tcp->throttle_end.tv_sec);
+	if (!is_throttled) {
+		/* Configuration limit, infer maximal pool size. */
+		rcu_read_lock();
+		conf_val_t val = conf_get(conf(), C_SRV, C_MAX_TCP_CLIENTS);
+		unsigned max_per_set = MAX(conf_int(&val) / conf_tcp_threads(conf()), 1);
+		rcu_read_unlock();
+		/* Subtract master sockets check limits. */
+		is_throttled = (set->n - tcp->client_threshold) >= max_per_set;
+	}
 
 	/* Process events. */
 	unsigned i = 0;
 	while (nfds > 0 && i < set->n) {
-
-		/* Terminate faulty connections. */
+		bool should_close = false;
 		int fd = set->pfd[i].fd;
-
-		/* Active sockets. */
-		if (set->pfd[i].revents & POLLIN) {
-			--nfds; /* One less active event. */
-
-			/* Indexes <0, client_threshold) are master sockets. */
+		if (set->pfd[i].revents & (POLLERR|POLLHUP|POLLNVAL)) {
+			should_close = (i >= tcp->client_threshold);
+			--nfds;
+		} else if (set->pfd[i].revents & (POLLIN)) {
+			/* Master sockets */
 			if (i < tcp->client_threshold) {
-				/* Faulty master sockets shall be sorted later. */
-				(void) tcp_event_accept(tcp, i);
+				if (!is_throttled && tcp_event_accept(tcp, i) == KNOT_EBUSY) {
+					time_now(&tcp->throttle_end);
+					tcp->throttle_end.tv_sec += tcp_throttle();
+				}
+			/* Client sockets */
 			} else {
 				if (tcp_event_serve(tcp, i) != KNOT_EOK) {
-					fdset_remove(set, i);
-					close(fd);
-					continue; /* Stay on the same index. */
+					should_close = true;
 				}
 			}
-
+			--nfds;
 		}
 
-		if (set->pfd[i].revents & (POLLERR|POLLHUP|POLLNVAL)) {
-			--nfds; /* One less active event. */
+		/* Evaluate */
+		if (should_close) {
 			fdset_remove(set, i);
 			close(fd);
-			continue; /* Stay on the same index. */
+		} else {
+			++i;
 		}
-
-		/* Next socket. */
-		++i;
 	}
 
 	return nfds;
@@ -314,7 +321,7 @@ int tcp_master(dthread_t *thread)
 
 	/* Create big enough memory cushion. */
 	mm_ctx_t mm;
-	mm_ctx_mempool(&mm, 4 * sizeof(knot_pkt_t));
+	mm_ctx_mempool(&mm, 16 * MM_DEFAULT_BLKSIZE);
 
 	/* Create TCP answering context. */
 	tcp.server = handler->server;
@@ -322,7 +329,8 @@ int tcp_master(dthread_t *thread)
 	tcp.overlay.mm = &mm;
 
 	/* Prepare structures for bound sockets. */
-	fdset_init(&tcp.set, list_size(&conf()->ifaces) + CONFIG_XFERS);
+	conf_val_t val = conf_get(conf(), C_SRV, C_LISTEN);
+	fdset_init(&tcp.set, conf_val_count(&val) + CONF_XFERS);
 
 	/* Create iovec abstraction. */
 	for (unsigned i = 0; i < 2; ++i) {

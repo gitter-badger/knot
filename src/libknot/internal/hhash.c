@@ -2,17 +2,18 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#include "libknot/internal/macros.h"
 #include "libknot/internal/hhash.h"
 #include "libknot/internal/binsearch.h"
 #include "libknot/internal/trie/murmurhash3.h"
-#include "libknot/errcode.h"
+#include "libknot/internal/errcode.h"
 
 /* UCW array sorting defines. */
 static int universal_cmp(uint32_t k1, uint32_t k2, hhash_t *tbl);
 #define ASORT_PREFIX(X) hhash_##X
 #define ASORT_KEY_TYPE uint32_t
 #define ASORT_LT(x, y) (universal_cmp((x), (y), tbl) < 0)
-#define ASORT_EXTRA_ARGS , hhash_t *tbl 
+#define ASORT_EXTRA_ARGS , hhash_t *tbl
 #include "libknot/internal/array-sort.h"
 
 /* Hopscotch internal defines. */
@@ -111,7 +112,7 @@ static bool hhelem_isequal(hhelem_t *elm, const char *key, uint16_t len)
 
 /*! \brief Binary search index for key. */
 #define CMP_I2K(t, k) (t)->item[t->index[k]].d
-#define CMP_LE(t,i,x...) (key_cmp(KEY_STR(CMP_I2K(t, i)), key_readlen(CMP_I2K(t, i)), x) <= 0)
+#define CMP_LE(t, i, x, ...) (key_cmp(KEY_STR(CMP_I2K(t, i)), key_readlen(CMP_I2K(t, i)), x, __VA_ARGS__) <= 0)
 
 /*! \brief Find matching index + offset. */
 static int hhelem_free(hhash_t* tbl, uint32_t id, unsigned dist, value_t *val)
@@ -387,7 +388,6 @@ void hhash_build_index(hhash_t* tbl)
 		tbl->index = NULL;
 	}
 
-
 	/* Rebuild index. */
 	uint32_t total = tbl->weight;
 	if (total == 0) {
@@ -577,7 +577,6 @@ const char* hhash_iter_key(hhash_iter_t* i, uint16_t* len)
 	if (i->flags & HH_SORTED) return hhash_sorted_iter_key(i, len);
 	else                      return hhash_unsorted_iter_key(i, len);
 }
-
 
 value_t *hhash_iter_val(hhash_iter_t* i)
 {

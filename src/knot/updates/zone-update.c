@@ -15,6 +15,7 @@
  */
 
 #include <assert.h>
+#include <urcu.h>
 
 #include "knot/updates/zone-update.h"
 #include "knot/updates/changesets.h"
@@ -181,7 +182,7 @@ static int deep_copy_node_data(zone_node_t *node_copy, const zone_node_t *node,
 	// Clear space for RRs
 	node_copy->rrs = NULL;
 	node_copy->rrset_count = 0;
-	
+
 	for (uint16_t i = 0; i < node->rrset_count; ++i) {
 		knot_rrset_t rr = node_rrset_at(node, i);
 		int ret = node_add_rrset(node_copy, &rr, mm);
@@ -534,7 +535,8 @@ static bool dnskey_nsec3param_changed(zone_update_t *update)
 
 static int sign_update(zone_update_t *update)
 {
-	if (!update->zone->conf->dnssec_enable) {
+	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_SIGNING, update->zone->name);
+	if (!conf_bool(&val)) {
 		return KNOT_EOK;
 	}
 
@@ -542,12 +544,12 @@ static int sign_update(zone_update_t *update)
 	const bool full_sign = changeset_empty(&update->change) ||
 	                       dnskey_nsec3param_changed(update);
 	if (full_sign) {
-		int ret = knot_dnssec_zone_sign(update, update->zone->conf, 0, &refresh_at);
+		int ret = knot_dnssec_zone_sign(update, 0, &refresh_at);
 		if (ret != KNOT_EOK) {
 			return ret;
 		}
 	} else {
-		int ret = knot_dnssec_sign_changeset(update, update->zone->conf, &refresh_at);
+		int ret = knot_dnssec_sign_changeset(update, &refresh_at);
 		if (ret != KNOT_EOK) {
 			return ret;
 		}
@@ -990,7 +992,9 @@ int zone_update_load_contents(zone_update_t *up)
 	assert(up->flags & UPDATE_FULL);
 
 	zloader_t zl;
-	int ret = zonefile_open(&zl, up->zone->conf->file, up->zone->conf->name);
+	
+	char *zonefile = conf_zonefile(conf, up->zone->name);
+	int ret = zonefile_open(&zl, zonefile, up->zone->name);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
@@ -999,7 +1003,9 @@ int zone_update_load_contents(zone_update_t *up)
 	/* Set the zone type (master/slave). If zone has no master set, we
 	 * are the primary master for this zone (i.e. zone type = master).
 	 */
-	zl.creator->master = !EMPTY_LIST(up->zone->conf->acl.xfr_in);
+#warning should this be logically negated? FIX THIS
+	//zl.creator->master = !EMPTY_LIST(up->zone->conf->acl.xfr_in);
+	zl.creator->master = true;
 
 	ret = zonefile_load(&zl);
 	zonefile_close(&zl);

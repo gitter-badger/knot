@@ -1,5 +1,4 @@
-.. meta::
-   :description: reStructuredText plaintext markup language
+.. highlight:: none
 
 Welcome to Knot DNS's documentation!
 ====================================
@@ -14,4 +13,5 @@ Welcome to Knot DNS's documentation!
    running
    troubleshooting
    reference
+   utilities
    migration

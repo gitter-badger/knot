@@ -5,7 +5,7 @@
 from dnstest.test import Test
 import random
 
-EXPIRE_SLEEP = 17
+EXPIRE_SLEEP = 20
 RETRY_SLEEP = 10
 START_SLEEP = 5
 
@@ -22,8 +22,8 @@ def set_slave(t, master, slave, zone):
 def role_switch(t, master, slave, zone, action):
     slave.zones = {}
     master.zones = {}
-    slave.max_conn_idle = "1s"
-    master.max_conn_idle = "1s"
+    slave.tcp_idle_timeout = "1s"
+    master.tcp_idle_timeout = "1s"
     action(t, master, slave, zone)
     t.generate_conf()
 
@@ -104,16 +104,16 @@ def refresh_tests(t, zone, master, slave):
 
 t = Test()
 
-# this zone has refresh = 1s, retry = 1s and expire = 1s + 2s for connection timeouts
+# this zone has refresh = 1s, retry = 1s and expire = 16s
 zone = t.zone("example.", storage=".")
 
 master = t.server("knot")
 master.disable_notify = True
-master.max_conn_idle = "1s"
+master.tcp_idle_timeout = "1s"
 
 slave = t.server("knot")
 slave.disable_notify = True
-slave.max_conn_idle = "1s"
+slave.tcp_idle_timeout = "1s"
 
 t.link(zone, master, slave)
 

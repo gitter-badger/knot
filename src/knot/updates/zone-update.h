@@ -30,6 +30,7 @@
 #include "knot/zone/zone.h"
 #include "knot/zone/contents.h"
 #include "libknot/internal/mempattern.h"
+#include "libknot/internal/trie/hat-trie.h"
 
 typedef struct {
 	zone_t *zone;        /*!< Zone being updated. */

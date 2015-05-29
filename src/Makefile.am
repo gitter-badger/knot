@@ -1,144 +1,34 @@
 ACLOCAL_AMFLAGS = -I $(top_srcdir)/m4
-SUBDIRS = dnstap .
+SUBDIRS = zscanner dnssec dnstap .
 
-sbin_PROGRAMS = knotc knotd
-bin_PROGRAMS = kdig khost knsupdate
-lib_LTLIBRARIES = libknot-int.la libknot.la
-noinst_LTLIBRARIES = libknotd.la libknotus.la
+lib_LTLIBRARIES =				\
+	libknot.la
+noinst_LTLIBRARIES = 				\
+	libknot-internal.la			\
+	libknot-yparser.la
 
-# $(YACC) will generate header file
 AM_CPPFLAGS = \
 	-include $(top_builddir)/src/config.h	\
 	-DCONFIG_DIR='"${config_dir}"'		\
 	-DSTORAGE_DIR='"${storage_dir}"'	\
 	-DRUN_DIR='"${run_dir}"'		\
-	-I$(top_srcdir)/dnssec/lib
+	-I$(srcdir)/dnssec/lib
 
 AM_CFLAGS = $(CODE_COVERAGE_CFLAGS)
 AM_LDFLAGS = $(CODE_COVERAGE_LDFLAGS)
-AM_YFLAGS = -d
-libknotd_la_YFLAGS = -pcf_ -d
-libknotd_la_LFLAGS = # TODO: reentrant parser, prefix
 
-BUILT_SOURCES =					\
-	knot/conf/libknotd_la-cf-lex.c		\
-	knot/conf/libknotd_la-cf-parse.c	\
-	knot/conf/libknotd_la-cf-parse.h
-
-CLEANFILES =					\
-	knot/conf/libknotd_la-cf-lex.c		\
-	knot/conf/libknotd_la-cf-parse.c	\
-	knot/conf/libknotd_la-cf-parse.h
-
-knotc_SOURCES =					\
-	knot/ctl/knotc_main.c
-
-knotd_SOURCES =					\
-	knot/main.c
-
-kdig_SOURCES =					\
-	utils/kdig/kdig_exec.c			\
-	utils/kdig/kdig_exec.h			\
-	utils/kdig/kdig_main.c			\
-	utils/kdig/kdig_params.c		\
-	utils/kdig/kdig_params.h
-
-khost_SOURCES =					\
-	utils/kdig/kdig_exec.c			\
-	utils/kdig/kdig_exec.h			\
-	utils/kdig/kdig_params.c		\
-	utils/kdig/kdig_params.h		\
-	utils/khost/khost_main.c		\
-	utils/khost/khost_params.c		\
-	utils/khost/khost_params.h
-
-knsupdate_SOURCES =				\
-	utils/knsupdate/knsupdate_exec.c	\
-	utils/knsupdate/knsupdate_exec.h	\
-	utils/knsupdate/knsupdate_main.c	\
-	utils/knsupdate/knsupdate_params.c	\
-	utils/knsupdate/knsupdate_params.h
-
-# static: utilities shared
-libknotus_la_SOURCES =				\
-	utils/common/exec.c			\
-	utils/common/exec.h			\
-	utils/common/hex.c			\
-	utils/common/hex.h			\
-	utils/common/msg.c			\
-	utils/common/msg.h			\
-	utils/common/netio.c			\
-	utils/common/netio.h			\
-	utils/common/params.c			\
-	utils/common/params.h			\
-	utils/common/resolv.c			\
-	utils/common/resolv.h			\
-	utils/common/strtonum.h			\
-	utils/common/token.c			\
-	utils/common/token.h
-
-# dynamic: libknot internal headers
-nobase_libknot_int_la_HEADERS =			\
-	libknot/internal/array-sort.h		\
-	libknot/internal/base32hex.h		\
-	libknot/internal/base64.h		\
-	libknot/internal/binsearch.h		\
-	libknot/internal/endian.h		\
-	libknot/internal/errors.h		\
-	libknot/internal/getline.h		\
-	libknot/internal/heap.h			\
-	libknot/internal/hhash.h		\
-	libknot/internal/lists.h		\
-	libknot/internal/macros.h		\
-	libknot/internal/mem.h			\
-	libknot/internal/mempattern.h		\
-	libknot/internal/mempool.h		\
-	libknot/internal/namedb/namedb.h	\
-	libknot/internal/namedb/namedb_lmdb.h	\
-	libknot/internal/namedb/namedb_trie.h	\
-	libknot/internal/net.h			\
-	libknot/internal/print.h		\
-	libknot/internal/sockaddr.h		\
-	libknot/internal/strlcat.h		\
-	libknot/internal/strlcpy.h		\
-	libknot/internal/tolower.h		\
-	libknot/internal/trie/hat-trie.h	\
-	libknot/internal/trie/murmurhash3.h	\
-	libknot/internal/utils.h
-
-# dynamic: libknot internal sources
-libknot_int_la_SOURCES =			\
-	libknot/internal/base32hex.c		\
-	libknot/internal/base64.c		\
-	libknot/internal/errors.c		\
-	libknot/internal/getline.c		\
-	libknot/internal/heap.c			\
-	libknot/internal/hhash.c		\
-	libknot/internal/lists.c		\
-	libknot/internal/mem.c			\
-	libknot/internal/mempattern.c		\
-	libknot/internal/mempool.c		\
-	libknot/internal/namedb/namedb_lmdb.c	\
-	libknot/internal/namedb/namedb_trie.c	\
-	libknot/internal/net.c			\
-	libknot/internal/print.c		\
-	libknot/internal/sockaddr.c		\
-	libknot/internal/strlcat.c		\
-	libknot/internal/strlcpy.c		\
-	libknot/internal/tolower.c		\
-	libknot/internal/trie/hat-trie.c	\
-	libknot/internal/trie/murmurhash3.c	\
-	libknot/internal/utils.c		\
-	$(libknot_int_la_HEADERS)
+######################
+# Knot DNS Libraries #
+######################
 
 # dynamic: libknot headers
+libknot_ladir = $(includedir)
 nobase_libknot_la_HEADERS =			\
 	libknot/binary.h			\
 	libknot/consts.h			\
 	libknot/descriptor.h			\
 	libknot/dname.h				\
 	libknot/dnssec/key.h			\
-	libknot/errcode.c			\
 	libknot/errcode.h			\
 	libknot/libknot.h			\
 	libknot/packet/compr.h			\
@@ -165,6 +55,36 @@ nobase_libknot_la_HEADERS =			\
 	libknot/rrtype/tsig.h			\
 	libknot/tsig-op.h
 
+libknot_internal_ladir = $(includedir)
+nobase_libknot_internal_la_HEADERS = 		\
+	libknot/internal/array-sort.h		\
+	libknot/internal/base32hex.h		\
+	libknot/internal/base64.h		\
+	libknot/internal/binsearch.h		\
+	libknot/internal/consts.h		\
+	libknot/internal/endian.h		\
+	libknot/internal/errcode.h		\
+	libknot/internal/getline.h		\
+	libknot/internal/heap.h			\
+	libknot/internal/hhash.h		\
+	libknot/internal/lists.h		\
+	libknot/internal/macros.h		\
+	libknot/internal/mem.h			\
+	libknot/internal/mempattern.h		\
+	libknot/internal/mempool.h		\
+	libknot/internal/namedb/namedb.h	\
+	libknot/internal/namedb/namedb_lmdb.h	\
+	libknot/internal/namedb/namedb_trie.h	\
+	libknot/internal/net.h			\
+	libknot/internal/print.h		\
+	libknot/internal/sockaddr.h		\
+	libknot/internal/strlcat.h		\
+	libknot/internal/strlcpy.h		\
+	libknot/internal/tolower.h		\
+	libknot/internal/trie/hat-trie.h	\
+	libknot/internal/trie/murmurhash3.h	\
+	libknot/internal/utils.h
+
 # dynamic: libknot sources
 libknot_la_SOURCES =				\
 	libknot/binary.c			\
@@ -187,18 +107,101 @@ libknot_la_SOURCES =				\
 	libknot/rrtype/opt.c			\
 	libknot/rrtype/tsig.c			\
 	libknot/tsig-op.c			\
-	$(libknot_la_HEADERS)
+	$(nobase_libknot_la_HEADERS)
+
+libknot_yparser_la_SOURCES = 			\
+	libknot/yparser/yparser.c		\
+	libknot/yparser/ypbody.c		\
+	libknot/yparser/ypformat.c		\
+	libknot/yparser/ypscheme.c		\
+	libknot/yparser/yptrafo.c		\
+	libknot/yparser/yparser.h		\
+	libknot/yparser/ypformat.h		\
+	libknot/yparser/ypscheme.h		\
+	libknot/yparser/yptrafo.h
+
+libknot_internal_la_SOURCES = 			\
+	libknot/internal/base32hex.c		\
+	libknot/internal/base64.c		\
+	libknot/internal/errcode.c		\
+	libknot/internal/getline.c		\
+	libknot/internal/heap.c			\
+	libknot/internal/hhash.c		\
+	libknot/internal/lists.c		\
+	libknot/internal/mem.c			\
+	libknot/internal/mempattern.c		\
+	libknot/internal/mempool.c		\
+	libknot/internal/namedb/namedb_lmdb.c	\
+	libknot/internal/namedb/namedb_trie.c	\
+	libknot/internal/net.c			\
+	libknot/internal/print.c		\
+	libknot/internal/sockaddr.c		\
+	libknot/internal/strlcat.c		\
+	libknot/internal/strlcpy.c		\
+	libknot/internal/tolower.c		\
+	libknot/internal/trie/hat-trie.c	\
+	libknot/internal/trie/murmurhash3.c	\
+	libknot/internal/utils.c		\
+	$(nobase_libknot_internal_la_HEADERS)
+
+libknot_internal_la_CPPFLAGS = $(AM_CPPFLAGS) $(lmdb_CFLAGS)
+libknot_internal_la_CFLAGS = $(AM_CFLAGS)
+
+libknot_la_CPPFLAGS = $(AM_CPPFLAGS) $(CFLAG_VISIBILITY) $(lmdb_CFLAGS)
+libknot_la_CFLAGS = $(AM_CFLAGS)
+libknot_la_LDFLAGS = $(AM_LDFLAGS) $(libknot_VERSION_INFO) $(lmdb_LIBS)
+libknot_la_LIBADD  = dnssec/libdnssec.la libknot-internal.la
+
+# pkg-config
+pkgconfig_DATA = libknot.pc
+
+if !HAVE_LMDB
+libknot_internal_la_SOURCES +=			\
+	libknot/internal/namedb/mdb.c		\
+	libknot/internal/namedb/midl.c		\
+	libknot/internal/namedb/lmdb.h		\
+	libknot/internal/namedb/midl.h
+libknot_internal_la_CPPFLAGS +=			\
+	-I$(srcdir)/libknot/internal/namedb/
+endif
+
+###################
+# Knot DNS Daemon #
+###################
+
+if HAVE_DAEMON
+
+sbin_PROGRAMS = knotc knotd
+libexec_PROGRAMS = knot1to2
+noinst_LTLIBRARIES += libknotd.la
+
+knotc_SOURCES =					\
+	knot/ctl/knotc_main.c
+
+knotd_SOURCES =					\
+	knot/main.c
+
+knot1to2_SOURCES =				\
+	utils/knot1to2/cf-lex.c			\
+	utils/knot1to2/cf-parse.tab.c		\
+	utils/knot1to2/cf-parse.tab.h		\
+	utils/knot1to2/extra.c			\
+	utils/knot1to2/extra.h			\
+	utils/knot1to2/includes.c		\
+	utils/knot1to2/includes.h		\
+	utils/knot1to2/main.c			\
+	utils/knot1to2/scheme.h
 
 # static: server shared
 libknotd_la_SOURCES =				\
-	knot/conf/cf-lex.l			\
-	knot/conf/cf-parse.y			\
 	knot/conf/conf.c			\
 	knot/conf/conf.h			\
-	knot/conf/extra.c			\
-	knot/conf/extra.h			\
-	knot/conf/includes.c			\
-	knot/conf/includes.h			\
+	knot/conf/confdb.c			\
+	knot/conf/confdb.h			\
+	knot/conf/scheme.c			\
+	knot/conf/scheme.h			\
+	knot/conf/tools.c			\
+	knot/conf/tools.h			\
 	knot/ctl/estimator.c			\
 	knot/ctl/estimator.h			\
 	knot/ctl/process.c			\
@@ -329,63 +332,113 @@ libknotd_la_SOURCES =				\
 	knot/zone/zonefile.c			\
 	knot/zone/zonefile.h
 
-# linking
-libknot_int_la_CPPFLAGS = $(AM_CPPFLAGS) $(lmdb_CFLAGS)
-libknot_int_la_CFLAGS = $(AM_CFLAGS) -fvisibility=default
-libknot_int_la_LDFLAGS = $(AM_LDFLAGS) $(RELEASE_INFO) $(VERSION_INFO) $(lmdb_LIBS)
+libknotd_la_CPPFLAGS  = $(AM_CPPFLAGS) $(systemd_CFLAGS) $(liburcu_CFLAGS)
+libknotd_la_LDFLAGS = $(AM_LDFLAGS) $(systemd_LIBS) $(liburcu_LIBS)
+libknotd_la_LIBADD = libknot.la libknot-yparser.la libknot-internal.la zscanner/libzscanner.la $(liburcu_LIBS)
 
-libknot_la_CPPFLAGS = $(AM_CPPFLAGS)
-libknot_la_LDFLAGS = $(AM_LDFLAGS) $(RELEASE_INFO) $(VERSION_INFO)
-libknot_la_LIBADD  = libknot-int.la ../dnssec/libdnssec.la zscanner/libzscanner.la
+knotd_CPPFLAGS = $(AM_CPPFLAGS) $(liburcu_CFLAGS)
+knotd_LDADD = libknotd.la libknot.la $(liburcu_LIBS)
+knotc_LDADD = libknotd.la libknot.la
+knot1to2_LDADD = libknotd.la libknot.la
 
-libknotd_la_CPPFLAGS  = $(AM_CPPFLAGS) $(systemd_CFLAGS)
-libknotd_la_LDFLAGS = $(AM_LDFLAGS) $(systemd_LIBS)
-libknotd_la_LIBADD = libknot.la
-
-libknotus_la_CPPFLAGS = $(AM_CPPFLAGS) $(libidn_CFLAGS)
-libknotus_la_LDFLAGS = $(AM_LDFLAGS) $(libidn_LIBS)
-libknotus_la_LIBADD = libknot.la
-
-# includes
-libknot_ladir = $(includedir)
-libknot_int_ladir = $(includedir)
-
-# sbin programs
-knotd_LDADD = libknot.la libknotd.la
-knotc_LDADD = libknot.la libknotd.la
-
-# bin programs
-BIN_LIBS = libknotus.la
-kdig_LDADD       = $(BIN_LIBS) $(libidn_LIBS)
-khost_LDADD      = $(BIN_LIBS) $(libidn_LIBS)
-knsupdate_LDADD  = $(BIN_LIBS) zscanner/libzscanner.la
+####################################
+# Optional Knot DNS Daemon modules #
+####################################
 
 if HAVE_DNSTAP
 libknotd_la_SOURCES +=				\
 	knot/modules/dnstap.c			\
 	knot/modules/dnstap.h
+libknotd_la_CPPFLAGS += $(DNSTAP_CFLAGS)
+libknotd_la_LIBADD += $(DNSTAP_LIBS) dnstap/libdnstap.la
+endif # HAVE_DNSTAP
 
-kdig_LDADD         += dnstap/libdnstap.la
-khost_LDADD        += dnstap/libdnstap.la
-libknotd_la_LIBADD += dnstap/libdnstap.la
-endif
-
-# rose sources and client tool
 if HAVE_ROSEDB
 libknotd_la_SOURCES +=				\
-	knot/modules/rosedb.c				\
+	knot/modules/rosedb.c			\
 	knot/modules/rosedb.h
-
-rosedb_tool_SOURCES =					\
-	knot/modules/rosedb_tool.c
-
-bin_PROGRAMS += rosedb_tool
-rosedb_tool_LDADD = libknot.la libknotd.la
-endif
-
-# pkg-config
-pkgconfig_DATA = $(top_srcdir)/libknot.pc
+endif # HAVE_ROSEDB
 
 # Create storage and run-time directories
 install-data-hook:
 	$(INSTALL) -d $(DESTDIR)/@config_dir@
+	$(INSTALL) -d $(DESTDIR)/@run_dir@
+	$(INSTALL) -d $(DESTDIR)/@storage_dir@
+
+endif # HAVE_DAEMON
+
+######################
+# Knot DNS Utilities #
+######################
+
+if HAVE_UTILS
+
+bin_PROGRAMS = kdig khost knsupdate
+noinst_LTLIBRARIES += libknotus.la
+
+kdig_SOURCES =					\
+	utils/kdig/kdig_exec.c			\
+	utils/kdig/kdig_exec.h			\
+	utils/kdig/kdig_main.c			\
+	utils/kdig/kdig_params.c		\
+	utils/kdig/kdig_params.h
+
+khost_SOURCES =					\
+	utils/kdig/kdig_exec.c			\
+	utils/kdig/kdig_exec.h			\
+	utils/kdig/kdig_params.c		\
+	utils/kdig/kdig_params.h		\
+	utils/khost/khost_main.c		\
+	utils/khost/khost_params.c		\
+	utils/khost/khost_params.h
+
+knsupdate_SOURCES =				\
+	utils/knsupdate/knsupdate_exec.c	\
+	utils/knsupdate/knsupdate_exec.h	\
+	utils/knsupdate/knsupdate_main.c	\
+	utils/knsupdate/knsupdate_params.c	\
+	utils/knsupdate/knsupdate_params.h
+
+# static: utilities shared
+libknotus_la_SOURCES =				\
+	utils/common/exec.c			\
+	utils/common/exec.h			\
+	utils/common/hex.c			\
+	utils/common/hex.h			\
+	utils/common/msg.c			\
+	utils/common/msg.h			\
+	utils/common/netio.c			\
+	utils/common/netio.h			\
+	utils/common/params.c			\
+	utils/common/params.h			\
+	utils/common/resolv.c			\
+	utils/common/resolv.h			\
+	utils/common/strtonum.h			\
+	utils/common/token.c			\
+	utils/common/token.h
+
+libknotus_la_CPPFLAGS = $(AM_CPPFLAGS) $(libidn_CFLAGS)
+libknotus_la_LDFLAGS = $(AM_LDFLAGS) $(libidn_LIBS)
+libknotus_la_LIBADD = libknot.la libknot-internal.la
+
+# bin programs
+kdig_LDADD       = $(libidn_LIBS) libknotus.la
+khost_LDADD      = $(libidn_LIBS) libknotus.la
+knsupdate_LDADD  = zscanner/libzscanner.la libknotus.la
+
+#######################################
+# Optional Knot DNS Utilities modules #
+#######################################
+
+if HAVE_DNSTAP
+kdig_LDADD         += $(DNSTAP_LIBS) dnstap/libdnstap.la
+khost_LDADD        += $(DNSTAP_LIBS) dnstap/libdnstap.la
+endif # HAVE_DNSTAP
+
+if HAVE_ROSEDB
+bin_PROGRAMS += rosedb_tool
+rosedb_tool_SOURCES = knot/modules/rosedb_tool.c
+rosedb_tool_LDADD = libknotd.la
+endif # HAVE_ROSEDB
+
+endif # HAVE_UTILS

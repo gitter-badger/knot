@@ -14,6 +14,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <urcu.h>
+
+#include "dnssec/random.h"
 #include "knot/nameserver/update.h"
 #include "knot/nameserver/internet.h"
 #include "knot/nameserver/process_query.h"
@@ -24,6 +27,7 @@
 #include "knot/dnssec/zone-events.h"
 #include "knot/updates/ddns.h"
 #include "knot/updates/zone-update.h"
+#include "libknot/libknot.h"
 #include "libknot/descriptor.h"
 #include "libknot/tsig-op.h"
 #include "knot/zone/zone.h"
@@ -35,8 +39,8 @@
 #include "dnssec/random.h"
 
 /* UPDATE-specific logging (internal, expects 'qdata' variable set). */
-#define UPDATE_LOG(severity, msg...) \
-	QUERY_LOG(severity, qdata, "DDNS", msg)
+#define UPDATE_LOG(severity, msg, ...) \
+	QUERY_LOG(severity, qdata, "DDNS", msg, ##__VA_ARGS__)
 
 static int init_qdata_from_request(struct query_data *qdata,
                                    const zone_t *zone,
@@ -173,13 +177,13 @@ static int process_normal(zone_t *zone, list_t *requests)
 	}
 
 	/* Sync zonefile immediately if configured. */
-	if (zone->conf->dbsync_timeout == 0) {
+	conf_val_t val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
+	if (conf_int(&val) == 0) {
 		zone_events_schedule(zone, ZONE_EVENT_FLUSH, ZONE_EVENT_NOW);
 	}
 
 	return KNOT_EOK;
 }
-
 
 static int process_requests(zone_t *zone, list_t *requests)
 {
@@ -219,12 +223,20 @@ static int process_requests(zone_t *zone, list_t *requests)
 
 static int forward_request(zone_t *zone, struct knot_request *request)
 {
+	/* Ignore if DNSSEC enabled. */
+	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_SIGNING, zone->name);
+	if (conf_bool(&val)) {
+		log_zone_notice(zone->name, "ignoring ddns forward due to "
+		                            "enabled automatic DNSSEC signing.");
+		return KNOT_EOK;
+	}
+
 	/* Create requestor instance. */
 	struct knot_requestor re;
 	knot_requestor_init(&re, NULL);
 
 	/* Fetch primary master. */
-	const conf_iface_t *master = zone_master(zone);
+	const conf_remote_t master = zone_master(zone);
 
 	/* Copy request and assign new ID. */
 	knot_pkt_t *query = knot_pkt_new(NULL, request->query->max_size, NULL);
@@ -238,8 +250,8 @@ static int forward_request(zone_t *zone, struct knot_request *request)
 	knot_tsig_append(query->wire, &query->size, query->max_size, query->tsig_rr);
 
 	/* Create a request. */
-	const struct sockaddr *dst = (const struct sockaddr *)&master->addr;
-	const struct sockaddr *src = (const struct sockaddr *)&master->via;
+	const struct sockaddr *dst = (const struct sockaddr *)&master.addr;
+	const struct sockaddr *src = (const struct sockaddr *)&master.via;
 	struct knot_request *req = knot_request_make(re.mm, dst, src, query, 0);
 	if (req == NULL) {
 		knot_pkt_free(&query);
@@ -254,7 +266,8 @@ static int forward_request(zone_t *zone, struct knot_request *request)
 	/* Enqueue and execute request. */
 	ret = knot_requestor_enqueue(&re, req);
 	if (ret == KNOT_EOK) {
-		struct timeval tv = { conf()->max_conn_reply, 0 };
+		conf_val_t val = conf_get(conf(), C_SRV, C_TCP_REPLY_TIMEOUT);
+		struct timeval tv = { conf_int(&val), 0 };
 		ret = knot_requestor_exec(&re, &tv);
 	}
 
@@ -288,7 +301,11 @@ static void forward_requests(zone_t *zone, list_t *requests)
 static bool update_tsig_check(struct query_data *qdata, struct knot_request *req)
 {
 	// Check that ACL is still valid.
-	if (!process_query_acl_check(&qdata->zr.zone->conf->acl.update_in, qdata)) {
+//<<<<<<< HEAD
+#warning check this merge, should this be NS_NEED_AUTH?
+//	if (!process_query_acl_check(&qdata->zr.zone->conf->acl.update_in, qdata)) {
+//=======
+	if (!process_query_acl_check(qdata->zr.zone->name, ACL_ACTION_UPDATE, qdata)) {
 		UPDATE_LOG(LOG_WARNING, "ACL check failed");
 		knot_wire_set_rcode(req->resp->wire, qdata->rcode);
 		return false;
@@ -314,7 +331,7 @@ static bool update_tsig_check(struct query_data *qdata, struct knot_request *req
 static void send_update_response(const zone_t *zone, struct knot_request *req)
 {
 	if (req->resp) {
-		if (!zone_master(zone)) {
+		if (zone_is_master(zone)) {
 			// Sign the response with TSIG where applicable
 			struct query_data qdata;
 			init_qdata_from_request(&qdata, zone, req, NULL);
@@ -323,7 +340,10 @@ static void send_update_response(const zone_t *zone, struct knot_request *req)
 		}
 
 		if (net_is_connected(req->fd)) {
-			tcp_send_msg(req->fd, req->resp->wire, req->resp->size);
+			conf_val_t val = conf_get(conf(), C_SRV, C_TCP_REPLY_TIMEOUT);
+			struct timeval timeout = { conf_int(&val), 0 };
+			tcp_send_msg(req->fd, req->resp->wire, req->resp->size,
+			             &timeout);
 		} else {
 			udp_send_msg(req->fd, req->resp->wire, req->resp->size,
 			             (struct sockaddr *)&req->remote);
@@ -363,7 +383,7 @@ static int init_update_responses(const zone_t *zone, list_t *updates,
 
 		assert(req->query);
 		knot_pkt_init_response(req->resp, req->query);
-		if (zone_master(zone)) {
+		if (!zone_is_master(zone)) {
 			// Don't check TSIG for forwards.
 			continue;
 		}
@@ -395,7 +415,7 @@ int update_query_process(knot_pkt_t *pkt, struct query_data *qdata)
 
 	/* Need valid transaction security. */
 	zone_t *zone = (zone_t *)qdata->zr.zone;
-	NS_NEED_AUTH(&zone->conf->acl.update_in, qdata);
+	NS_NEED_AUTH(qdata, zone->name, ACL_ACTION_UPDATE);
 	/* Check expiration. */
 	NS_NEED_ZONE_CONTENTS(qdata, KNOT_RCODE_SERVFAIL);
 
@@ -404,12 +424,12 @@ int update_query_process(knot_pkt_t *pkt, struct query_data *qdata)
 	/* Store update into DDNS queue. */
 	int ret = zone_update_enqueue(zone, qdata->query, qdata->param);
 	if (ret != KNOT_EOK) {
-		return KNOT_NS_PROC_FAIL;
+		return KNOT_STATE_FAIL;
 	}
 
 	/* No immediate response. */
 	pkt->size = 0;
-	return KNOT_NS_PROC_DONE;
+	return KNOT_STATE_DONE;
 }
 
 int updates_execute(zone_t *zone)
@@ -421,22 +441,27 @@ int updates_execute(zone_t *zone)
 		return KNOT_EOK;
 	}
 
+	/* Block config changes. */
+	rcu_read_lock();
+
 	/* Init updates respones. */
 	int ret = init_update_responses(zone, &updates, &update_count);
 	if (ret != KNOT_EOK) {
 		/* Send what responses we can. */
 		set_rcodes(&updates, KNOT_RCODE_SERVFAIL);
 		send_update_responses(zone, &updates);
+		rcu_read_unlock();
 		return ret;
 	}
 
 	if (update_count == 0) {
 		/* All updates failed their ACL checks. */
+		rcu_read_unlock();
 		return KNOT_EOK;
 	}
 
 	/* Process update list - forward if zone has master, or execute. */
-	if (zone_master(zone)) {
+	if (!zone_is_master(zone)) {
 		log_zone_info(zone->name,
 		              "DDNS, forwarding %zu updates", update_count);
 		forward_requests(zone, &updates);
@@ -450,6 +475,6 @@ int updates_execute(zone_t *zone)
 	/* Send responses. */
 	send_update_responses(zone, &updates);
 
+	rcu_read_unlock();
 	return KNOT_EOK;
 }
-

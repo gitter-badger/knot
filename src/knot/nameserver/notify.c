@@ -43,8 +43,8 @@
 /*----------------------------------------------------------------------------*/
 
 /* NOTIFY-specific logging (internal, expects 'qdata' variable set). */
-#define NOTIFY_QLOG(severity, msg...) \
-	QUERY_LOG(severity, qdata, "NOTIFY, incoming", msg)
+#define NOTIFY_QLOG(severity, msg, ...) \
+	QUERY_LOG(severity, qdata, "NOTIFY, incoming", msg, ##__VA_ARGS__)
 
 static int notify_check_query(struct query_data *qdata)
 {
@@ -54,20 +54,20 @@ static int notify_check_query(struct query_data *qdata)
 	/* Check valid zone, transaction security. */
 	zone_t *zone = (zone_t *)qdata->zr.zone;
 	NS_NEED_ZONE(qdata, KNOT_RCODE_NOTAUTH);
-	NS_NEED_AUTH(&zone->conf->acl.notify_in, qdata);
+	NS_NEED_AUTH(qdata, zone->name, ACL_ACTION_NOTIFY);
 
-	return KNOT_NS_PROC_DONE;
+	return KNOT_STATE_DONE;
 }
 
 int notify_process_query(knot_pkt_t *pkt, struct query_data *qdata)
 {
 	if (pkt == NULL || qdata == NULL) {
-		return KNOT_NS_PROC_FAIL;
+		return KNOT_STATE_FAIL;
 	}
 
 	/* Validate notification query. */
 	int state = notify_check_query(qdata);
-	if (state == KNOT_NS_PROC_FAIL) {
+	if (state == KNOT_STATE_FAIL) {
 		switch (qdata->rcode) {
 		case KNOT_RCODE_NOTAUTH: /* Not authoritative or ACL check failed. */
 			NOTIFY_QLOG(LOG_NOTICE, "unauthorized request");
@@ -80,12 +80,12 @@ int notify_process_query(knot_pkt_t *pkt, struct query_data *qdata)
 	}
 
 	/* Reserve space for TSIG. */
-	knot_pkt_reserve(pkt, knot_tsig_wire_maxsize(qdata->sign.tsig_key));
+	knot_pkt_reserve(pkt, knot_tsig_wire_maxsize(&qdata->sign.tsig_key));
 
 	/* SOA RR in answer may be included, recover serial. */
 	const knot_pktsection_t *answer = knot_pkt_section(qdata->query, KNOT_ANSWER);
 	if (answer->count > 0) {
-		const knot_rrset_t *soa = &answer->rr[0];
+		const knot_rrset_t *soa = knot_pkt_rr(answer, 0);
 		if (soa->type == KNOT_RRTYPE_SOA) {
 			uint32_t serial = knot_soa_serial(&soa->rrs);
 			NOTIFY_QLOG(LOG_INFO, "received serial %u", serial);
@@ -101,22 +101,22 @@ int notify_process_query(knot_pkt_t *pkt, struct query_data *qdata)
 	zone_events_schedule(zone, ZONE_EVENT_REFRESH, ZONE_EVENT_NOW);
 	int ret = zone_events_write_persistent(zone);
 	if (ret != KNOT_EOK) {
-		return KNOT_NS_PROC_FAIL;
+		return KNOT_STATE_FAIL;
 	}
 
-	return KNOT_NS_PROC_DONE;
+	return KNOT_STATE_DONE;
 }
 
 #undef NOTIFY_QLOG
 
 /* NOTIFY-specific logging (internal, expects 'adata' variable set). */
-#define NOTIFY_RLOG(severity, msg...) \
-	ANSWER_LOG(severity, adata, "NOTIFY, outgoing", msg)
+#define NOTIFY_RLOG(severity, msg, ...) \
+	ANSWER_LOG(severity, adata, "NOTIFY, outgoing", msg, ##__VA_ARGS__)
 
 int notify_process_answer(knot_pkt_t *pkt, struct answer_data *adata)
 {
 	if (pkt == NULL || adata == NULL) {
-		return KNOT_NS_PROC_FAIL;
+		return KNOT_STATE_FAIL;
 	}
 
 	/* Check RCODE. */
@@ -126,12 +126,12 @@ int notify_process_answer(knot_pkt_t *pkt, struct answer_data *adata)
 		if (lut != NULL) {
 			NOTIFY_RLOG(LOG_WARNING, "server responded with %s", lut->name);
 		}
-		return KNOT_NS_PROC_FAIL;
+		return KNOT_STATE_FAIL;
 	}
 
 	NS_NEED_TSIG_SIGNED(&adata->param->tsig_ctx, 0);
 
-	return KNOT_NS_PROC_DONE; /* No processing. */
+	return KNOT_STATE_DONE; /* No processing. */
 }
 
 #undef NOTIFY_RLOG

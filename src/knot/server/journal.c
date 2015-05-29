@@ -27,6 +27,7 @@
 #include "knot/common/debug.h"
 #include "knot/server/journal.h"
 #include "knot/server/serialization.h"
+#include "libknot/libknot.h"
 #include "libknot/rrtype/soa.h"
 
 /*! \brief Infinite file size limit. */
@@ -107,7 +108,7 @@ static int journal_create_file(const char *fn, uint16_t max_nodes)
 	int fd = open(fn, O_RDWR|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP);
 	if (fd < 0) {
 		dbg_journal("journal: failed to create file '%s'\n", fn);
-		return knot_map_errno(errno);
+		return knot_map_errno();
 	}
 
 	/* Lock. */
@@ -201,7 +202,7 @@ static int journal_open_file(journal_t *j)
 	dbg_journal_verb("journal: open_file '%s'\n", j->path);
 	if (j->fd < 0) {
 		if (errno != ENOENT) {
-			return knot_map_errno(errno);
+			return knot_map_errno();
 		}
 
 		/* Create new journal file and open if not exists. */
@@ -219,7 +220,7 @@ static int journal_open_file(journal_t *j)
 	dbg_journal_verb("journal: locking journal %s\n", j->path);
 	ret = fcntl(j->fd, F_SETLKW, &lock);
 	if (ret < 0) {
-		return knot_map_errno(errno);
+		return knot_map_errno();
 	}
 
 	/* Read magic bytes. */
@@ -519,7 +520,6 @@ int journal_write_out(journal_t *journal, journal_node_t *n)
 
 	return KNOT_EOK;
 }
-
 
 journal_t* journal_open(const char *path, size_t fslimit)
 {
@@ -970,7 +970,7 @@ static int journal_walk(const char *fn, uint32_t from, uint32_t to,
 	if (ret != KNOT_EOK) {
 		goto finish;
 	}
-	
+
 	size_t i = n - journal->nodes;
 	assert(i < journal->max_nodes);
 
@@ -1019,10 +1019,10 @@ static int load_changeset(journal_t *journal, journal_node_t *n, const zone_t *z
 	return ret;
 }
 
-int journal_load_changesets(const struct zone *zone, changeset_t *ch,
+int journal_load_changesets(const char *path, const struct zone *zone, changeset_t *ch,
                             uint32_t from, uint32_t to)
 {
-	int ret = journal_walk(zone->conf->ixfr_db, from, to, &load_changeset, zone, ch);
+	int ret = journal_walk(path, from, to, &load_changeset, zone, ch);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}

@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <tap/basic.h>
 
+#include "libknot/libknot.h"
 #include "knot/server/journal.h"
 #include "knot/zone/zone-diff.h"
 
@@ -77,20 +78,20 @@ static void init_random_changeset(changeset_t *ch, const uint32_t from, const ui
 {
 	int ret = changeset_init(ch, apex);
 	assert(ret == KNOT_EOK);
-	
+
 	// Add SOAs
 	knot_rrset_t soa;
 	init_soa(&soa, from, apex);
-	
+
 	ch->soa_from = knot_rrset_copy(&soa, NULL);
 	assert(ch->soa_from);
 	knot_rrset_clear(&soa, NULL);
-	
+
 	init_soa(&soa, to, apex);
 	ch->soa_to = knot_rrset_copy(&soa, NULL);
 	assert(ch->soa_to);
 	knot_rrset_clear(&soa, NULL);
-	
+
 	// Add RRs to add section
 	for (size_t i = 0; i < size / 2; ++i) {
 		knot_rrset_t rr;
@@ -212,8 +213,7 @@ static void test_store_load(const char *jfilename)
 	uint8_t *apex = (uint8_t *)"\4test";
 
 	/* Create fake zone. */
-	conf_zone_t zconf = { .ixfr_db = (char *)jfilename, .ixfr_fslimit = filesize };
-	zone_t z = { .name = apex, .conf = &zconf };
+	zone_t z = { .name = apex };
 
 	/* Save and load changeset. */
 	changeset_t ch;
@@ -222,7 +222,7 @@ static void test_store_load(const char *jfilename)
 	ok(ret == KNOT_EOK, "journal: store changeset");
 	list_t l;
 	init_list(&l);
-	ret = journal_load_changesets(&z, &l, 0, 1);
+	ret = journal_load_changesets(jfilename, &z, &l, 0, 1);
 	ok(ret == KNOT_EOK && changesets_eq(TAIL(l), &ch), "journal: load changeset");
 	changeset_clear(&ch);
 	init_list(&l);
@@ -239,7 +239,7 @@ static void test_store_load(const char *jfilename)
 
 	/* Load all changesets stored until now. */
 	serial--;
-	ret = journal_load_changesets(&z, &l, 0, serial);
+	ret = journal_load_changesets(jfilename, &z, &l, 0, serial);
 	ok(ret == KNOT_EOK, "journal: load changesets");
 
 	/* Flush the journal. */
@@ -254,7 +254,7 @@ static void test_store_load(const char *jfilename)
 
 	/* Load all changesets, except the first one that got evicted. */
 	init_list(&l);
-	ret = journal_load_changesets(&z, &l, 1, serial + 1);
+	ret = journal_load_changesets(jfilename, &z, &l, 1, serial + 1);
 	ok(ret == KNOT_EOK, "journal: load changesets after flush");
 }
 

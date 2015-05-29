@@ -18,132 +18,224 @@
 #include <sys/socket.h>
 #include <tap/basic.h>
 
-#include "libknot/errcode.h"
+#include "test_conf.h"
+#include "libknot/libknot.h"
 #include "libknot/internal/sockaddr.h"
 #include "knot/updates/acl.h"
-#include "knot/conf/conf.h"
 
-static int acl_insert(list_t *acl, const struct sockaddr_storage *addr,
-                      uint8_t prefix, knot_tsig_key_t *key)
+static void check_sockaddr_set(struct sockaddr_storage *ss, int family,
+                               const char *straddr, int port)
 {
-	assert(acl);
-	assert(addr);
+	int ret = sockaddr_set(ss, family, straddr, port);
+	ok(ret == KNOT_EOK, "set address '%s'", straddr);
+}
 
-	conf_iface_t *iface = malloc(sizeof(conf_iface_t));
-	assert(iface);
-	conf_remote_t *remote = malloc(sizeof(conf_remote_t));
-	assert(remote);
-	remote->remote = iface;
+static void test_netblock_match(void)
+{
+	int ret;
+	struct sockaddr_storage t = { 0 };
 
-	memset(iface, 0, sizeof(conf_iface_t));
-	iface->prefix = prefix;
-	iface->key = key;
-	memcpy(&iface->addr, addr, sizeof(struct sockaddr_storage));
+	// 127 dec ~ 01111111 bin
+	// 170 dec ~ 10101010 bin
+	struct sockaddr_storage ref4 = { 0 };
+	check_sockaddr_set(&ref4, AF_INET, "127.170.170.127", 0);
 
-	add_tail(acl, &remote->n);
-	return KNOT_EOK;
+	// 7F hex ~ 01111111 bin
+	// AA hex ~ 10101010 bin
+	struct sockaddr_storage ref6 = { 0 };
+	check_sockaddr_set(&ref6, AF_INET6, "7FAA::AA7F", 0);
+
+	ret = netblock_match(&ref4, &ref6, 32);
+	ok(ret == false, "match: family mismatch");
+
+	ret = netblock_match(NULL, &ref4, 32);
+	ok(ret == false, "match: NULL first parameter");
+	ret = netblock_match(&ref4, NULL, 32);
+	ok(ret == false, "match: NULL second parameter");
+
+	ret = netblock_match(&ref4, &ref4, 31);
+	ok(ret == true, "match: ipv4 - identity, subnet");
+	ret = netblock_match(&ref4, &ref4, 32);
+	ok(ret == true, "match: ipv4 - identity, full prefix");
+	ret = netblock_match(&ref4, &ref4, 33);
+	ok(ret == true, "match: ipv4 - identity, prefix overflow");
+
+	ret = netblock_match(&ref6, &ref6, 127);
+	ok(ret == true, "match: ipv6 - identity, subnet");
+	ret = netblock_match(&ref6, &ref6, 128);
+	ok(ret == true, "match: ipv6 - identity, full prefix");
+	ret = netblock_match(&ref6, &ref6, 129);
+	ok(ret == true, "match: ipv6 - identity, prefix overflow");
+
+	// 124 dec ~ 01111100 bin
+	check_sockaddr_set(&t, AF_INET, "124.0.0.0", 0);
+	ret = netblock_match(&t, &ref4, 5);
+	ok(ret == true, "match: ipv4 - first byte, shorter prefix");
+	ret = netblock_match(&t, &ref4, 6);
+	ok(ret == true, "match: ipv4 - first byte, precise prefix");
+	ret = netblock_match(&t, &ref4, 7);
+	ok(ret == false, "match: ipv4 - first byte, not match");
+
+	check_sockaddr_set(&t, AF_INET, "127.170.170.124", 0);
+	ret = netblock_match(&t, &ref4, 29);
+	ok(ret == true, "match: ipv4 - last byte, shorter prefix");
+	ret = netblock_match(&t, &ref4, 30);
+	ok(ret == true, "match: ipv4 - last byte, precise prefix");
+	ret = netblock_match(&t, &ref4, 31);
+	ok(ret == false, "match: ipv4 - last byte, not match");
+
+	// 7C hex ~ 01111100 bin
+	check_sockaddr_set(&t, AF_INET6, "7CAA::", 0);
+	ret = netblock_match(&t, &ref6, 5);
+	ok(ret == true, "match: ipv6 - first byte, shorter prefix");
+	ret = netblock_match(&t, &ref6, 6);
+	ok(ret == true, "match: ipv6 - first byte, precise prefix");
+	ret = netblock_match(&t, &ref6, 7);
+	ok(ret == false, "match: ipv6 - first byte, not match");
+
+	check_sockaddr_set(&t, AF_INET6, "7FAA::AA7C", 0);
+	ret = netblock_match(&t, &ref6, 125);
+	ok(ret == true, "match: ipv6 - last byte, shorter prefix");
+	ret = netblock_match(&t, &ref6, 126);
+	ok(ret == true, "match: ipv6 - last byte, precise prefix");
+	ret = netblock_match(&t, &ref6, 127);
+	ok(ret == false, "match: ipv6 - last byte, not match");
+}
+
+#define ZONE	"example.zone"
+#define KEY1	"key1_md5"
+#define KEY2	"key2_md5"
+#define KEY3	"key3_sha256"
+
+static void test_acl_allowed(void)
+{
+	int ret;
+	conf_val_t acl;
+	struct sockaddr_storage addr = { 0 };
+
+	knot_dname_t *zone_name = knot_dname_from_str_alloc(ZONE);
+	ok(zone_name != NULL, "create zone dname");
+	knot_dname_t *key1_name = knot_dname_from_str_alloc(KEY1);
+	ok(key1_name != NULL, "create "KEY1);
+	knot_dname_t *key2_name = knot_dname_from_str_alloc(KEY2);
+	ok(key2_name != NULL, "create "KEY2);
+	knot_dname_t *key3_name = knot_dname_from_str_alloc(KEY3);
+	ok(key3_name != NULL, "create "KEY3);
+
+	knot_tsig_key_t key0 = { NULL };
+	knot_tsig_key_t key1 = { key1_name, DNSSEC_TSIG_HMAC_MD5 };
+	knot_tsig_key_t key2 = { key2_name, DNSSEC_TSIG_HMAC_MD5 };
+	knot_tsig_key_t key3 = { key3_name, DNSSEC_TSIG_HMAC_SHA256 };
+
+	const char *conf_str =
+		"key:\n"
+		"  - id: "KEY1"\n"
+		"    algorithm: hmac-md5\n"
+		"    secret: Zm9v\n"
+		"  - id: "KEY2"\n"
+		"    algorithm: hmac-md5\n"
+		"    secret: Zm9v\n"
+		"  - id: "KEY3"\n"
+		"    algorithm: hmac-sha256\n"
+		"    secret: Zm8=\n"
+		"\n"
+		"acl:\n"
+		"  - id: acl_key_addr\n"
+		"    address: [ 2001::1 ]\n"
+		"    key: [ key1_md5 ]\n"
+		"    action: [ transfer ]\n"
+		"  - id: acl_deny\n"
+		"    address: [ 240.0.0.2 ]\n"
+		"    action: [ notify ]\n"
+		"    deny: on\n"
+		"  - id: acl_multi_addr\n"
+		"    address: [ 192.168.1.1, 240.0.0.0/24 ]\n"
+		"    action: [ notify, update ]\n"
+		"  - id: acl_multi_key\n"
+		"    key: [ key2_md5, key3_sha256 ]\n"
+		"    action: [ notify, update ]\n"
+		"\n"
+		"zone:\n"
+		"  - domain: "ZONE"\n"
+		"    acl: [ acl_key_addr, acl_deny, acl_multi_addr, acl_multi_key]";
+
+	ret = test_conf(conf_str, NULL);
+	ok(ret == KNOT_EOK, "Prepare configuration");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET6, "2001::1", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_TRANSFER, &addr, &key1);
+	ok(ret == true, "Address, key, action match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET6, "2001::2", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_TRANSFER, &addr, &key1);
+	ok(ret == false, "Address not match, key, action match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET6, "2001::1", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_TRANSFER, &addr, &key0);
+	ok(ret == false, "Address match, no key, action match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET6, "2001::1", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_TRANSFER, &addr, &key2);
+	ok(ret == false, "Address match, key not match, action match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET6, "2001::1", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_NOTIFY, &addr, &key1);
+	ok(ret == false, "Address, key match, action not match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET, "240.0.0.1", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_NOTIFY, &addr, &key0);
+	ok(ret == true, "Second address match, no key, action match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET, "240.0.0.1", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_NOTIFY, &addr, &key1);
+	ok(ret == false, "Second address match, extra key, action match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET, "240.0.0.2", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_NOTIFY, &addr, &key0);
+	ok(ret == false, "Denied address match, no key, action match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET, "240.0.0.2", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_UPDATE, &addr, &key0);
+	ok(ret == true, "Denied address match, no key, action not match");
+
+	acl = conf_zone_get(conf(), C_ACL, zone_name);
+	ok(acl.code == KNOT_EOK, "Get zone ACL");
+	check_sockaddr_set(&addr, AF_INET, "1.1.1.1", 0);
+	ret = acl_allowed(&acl, ACL_ACTION_UPDATE, &addr, &key3);
+	ok(ret == true, "Arbitrary address, second key, action match");
+
+	conf_free(conf(), false);
+	knot_dname_free(&zone_name, NULL);
+	knot_dname_free(&key1_name, NULL);
+	knot_dname_free(&key2_name, NULL);
+	knot_dname_free(&key3_name, NULL);
 }
 
 int main(int argc, char *argv[])
 {
-	plan(15);
+	plan_lazy();
 
-	conf_iface_t *match = NULL;
-	list_t acl;
-	init_list(&acl);
+	test_netblock_match();
 
-	// Create IPv4 address
-	struct sockaddr_storage test_v4;
-	int ret = sockaddr_set(&test_v4, AF_INET, "127.0.0.1", 12345);
-	ok(ret == KNOT_EOK, "acl: new IPv4 address");
+	test_acl_allowed();
 
-	// Create IPv6 address
-	struct sockaddr_storage test_v6;
-	ret = sockaddr_set(&test_v6, AF_INET6, "::1", 54321);
-	ok(ret == KNOT_EOK, "acl: new IPv6 address");
-
-	// Create simple IPv4 rule
-	ret = acl_insert(&acl, &test_v4, IPV4_PREFIXLEN, NULL);
-	ok(ret == KNOT_EOK, "acl: inserted IPv4 rule");
-
-	// Create simple IPv6 rule
-	ret = acl_insert(&acl, &test_v6, IPV6_PREFIXLEN, NULL);
-	ok(ret == KNOT_EOK, "acl: inserted IPv6 rule");
-
-	// Attempt to match unmatching address
-	struct sockaddr_storage unmatch_v4;
-	sockaddr_set(&unmatch_v4, AF_INET, "10.10.10.10", 24424);
-	match = acl_find(&acl, &unmatch_v4, NULL);
-	ok(match == NULL, "acl: matching non-existing address");
-
-	// Attempt to match unmatching IPv6 address
-	struct sockaddr_storage unmatch_v6;
-	sockaddr_set(&unmatch_v6, AF_INET6, "2001:db8::1428:57ab", 24424);
-	match = acl_find(&acl, &unmatch_v6, NULL);
-	ok(match == NULL, "acl: matching non-existing IPv6 address");
-
-	// Attempt to match matching address
-	match = acl_find(&acl, &test_v4, NULL);
-	ok(match != NULL, "acl: matching existing address");
-
-	// Attempt to match matching address
-	match = acl_find(&acl, &test_v6, NULL);
-	ok(match != NULL, "acl: matching existing IPv6 address");
-
-	// Attempt to match subnet
-	struct sockaddr_storage match_pf4, test_pf4;
-	sockaddr_set(&match_pf4, AF_INET, "192.168.1.0", 0);
-	acl_insert(&acl, &match_pf4, 24, NULL);
-	sockaddr_set(&test_pf4, AF_INET, "192.168.1.20", 0);
-	match = acl_find(&acl, &test_pf4, NULL);
-	ok(match != NULL, "acl: searching address in matching prefix /24");
-
-	// Attempt to search non-matching subnet
-	sockaddr_set(&test_pf4, AF_INET, "192.168.2.20", 0);
-	match = acl_find(&acl, &test_pf4, NULL);
-	ok(match == NULL, "acl: searching address in non-matching prefix /24");
-
-	// Attempt to match v6 subnet
-	struct sockaddr_storage match_pf6, test_pf6;
-	sockaddr_set(&match_pf6, AF_INET6, "2001:0DB8:0400:000e:0:0:0:AB00", 0);
-	acl_insert(&acl, &match_pf6, 120, NULL);
-	sockaddr_set(&test_pf6, AF_INET6, "2001:0DB8:0400:000e:0:0:0:AB03", 0);
-	match = acl_find(&acl, &test_pf6, NULL);
-	ok(match != NULL, "acl: searching v6 address in matching prefix /120");
-
-	// Attempt to search non-matching subnet
-	sockaddr_set(&test_pf6, AF_INET6, "2001:0DB8:0400:000e:0:0:0:CCCC", 0);
-	match = acl_find(&acl, &test_pf6, NULL);
-	ok(match == NULL, "acl: searching v6 address in non-matching prefix /120");
-
-	// Attempt to search subnet with key (multiple keys)
-	knot_tsig_key_t key_a, key_b;
-	knot_tsig_create_key("tsig-key1", DNSSEC_TSIG_HMAC_MD5, "Wg==", &key_a);
-	knot_tsig_create_key("tsig-key2", DNSSEC_TSIG_HMAC_MD5, "Wg==", &key_b);
-	acl_insert(&acl, &match_pf6, 120, &key_a);
-	acl_insert(&acl, &match_pf6, 120, &key_b);
-	sockaddr_set(&test_pf6, AF_INET6, "2001:0DB8:0400:000e:0:0:0:AB03", 0);
-	match = acl_find(&acl, &test_pf6, key_a.name);
-	ok(match != NULL && match->key == &key_a, "acl: searching v6 address with TSIG key A");
-	match = acl_find(&acl, &test_pf6, key_b.name);
-	ok(match != NULL && match->key == &key_b, "acl: searching v6 address with TSIG key B");
-
-	// Attempt to search subnet with mismatching key
-	knot_tsig_key_t badkey;
-	knot_tsig_create_key("tsig-bad", DNSSEC_TSIG_HMAC_MD5, "Wg==", &badkey);
-	match = acl_find(&acl, &test_pf6, badkey.name);
-	ok(match == NULL, "acl: searching v6 address with bad TSIG key");
-	knot_tsig_key_free(&badkey);
-
-	knot_tsig_key_free(&key_a);
-	knot_tsig_key_free(&key_b);
-
-	conf_remote_t *remote = NULL, *next = NULL;
-	WALK_LIST_DELSAFE(remote, next, acl) {
-		free(remote->remote);
-		free(remote);
-	}
-
-	// Return
 	return 0;
 }

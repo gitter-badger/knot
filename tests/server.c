@@ -15,6 +15,7 @@
  */
 
 #include <tap/basic.h>
+#include "libknot/internal/errcode.h"
 #include "knot/server/server.h"
 
 // Signal handler

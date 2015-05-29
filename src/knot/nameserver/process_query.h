@@ -32,9 +32,8 @@
 #include "knot/updates/zone-read.h"
 
 /* Query processing module implementation. */
-const knot_layer_api_t *process_query_get_module(void);
-#define NS_PROC_QUERY process_query_get_module()
-#define NS_PROC_QUERY_ID 1
+const knot_layer_api_t *process_query_layer(void);
+#define NS_PROC_QUERY process_query_layer()
 
 /*! \brief Query processing logging common base. */
 #define NS_PROC_LOG(severity, remote, zone_name, operation, msg, ...) do { \
@@ -45,9 +44,9 @@ const knot_layer_api_t *process_query_get_module(void);
 	} while (0)
 
 /*! \brief Query logging common base. */
-#define QUERY_LOG(severity, qdata, operation, msg...) \
+#define QUERY_LOG(severity, qdata, operation, msg, ...) \
 	NS_PROC_LOG(severity, (qdata)->param->remote, knot_pkt_qname((qdata)->query), \
-	            operation, msg);
+	            operation, msg, ##__VA_ARGS__);
 
 /* Query processing specific flags. */
 enum process_query_flag {
@@ -115,11 +114,13 @@ struct rrsig_info {
 /*!
  * \brief Check current query against ACL.
  *
- * \param acl
- * \param qdata
+ * \param zone_name  Current zone name.
+ * \param action     ACL action.
+ * \param qdata      Query data.
  * \return true if accepted, false if denied.
  */
-bool process_query_acl_check(list_t *acl, struct query_data *qdata);
+bool process_query_acl_check(const knot_dname_t *zone_name, acl_action_t action,
+                             struct query_data *qdata);
 
 /*!
  * \brief Verify current query transaction security and update query data.

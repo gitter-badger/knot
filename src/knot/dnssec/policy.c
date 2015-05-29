@@ -16,7 +16,6 @@
 
 #include <assert.h>
 
-#include "knot/conf/conf.h"
 #include "knot/dnssec/context.h"
 #include "knot/updates/zone-update.h"
 #include "libknot/rrtype/soa.h"
@@ -24,6 +23,7 @@
 #define MINIMAL_RRSIG_LIFETIME (3 * 60 * 60)
 #define DEFAULT_RRSIG_LIFETIME (30 * 24 * 60 * 60)
 
+#warning: check the merge
 static uint32_t zone_soa_min_ttl(zone_update_t *update)
 {
 	const zone_node_t *apex = zone_update_get_apex(update);
@@ -51,16 +51,10 @@ void update_policy_from_zone(dnssec_kasp_policy_t *policy,
 	policy->zone_maximal_ttl = 0; // TODO
 }
 
-void set_default_policy(dnssec_kasp_policy_t *policy, const conf_zone_t *config,
+void set_default_policy(dnssec_kasp_policy_t *policy,
                         zone_update_t *update)
 {
-	if (config->sig_lifetime <= 0) {
-		policy->rrsig_lifetime = DEFAULT_RRSIG_LIFETIME;
-	} else if (config->sig_lifetime < MINIMAL_RRSIG_LIFETIME) {
-		policy->rrsig_lifetime = MINIMAL_RRSIG_LIFETIME;
-	} else {
-		policy->rrsig_lifetime = config->sig_lifetime;
-	}
+	policy->rrsig_lifetime = 30 * 24 * 3600;
 	policy->rrsig_refresh_before = policy->rrsig_lifetime / 10;
 	policy->algorithm = 0;
 	policy->propagation_delay = 0;

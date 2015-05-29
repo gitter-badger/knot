@@ -39,11 +39,30 @@ enum zone_sign_flags {
 
 typedef enum zone_sign_flags zone_sign_flags_t;
 
-int knot_dnssec_zone_sign(zone_update_t *update, const conf_zone_t *config,
-                          zone_sign_flags_t flags, uint32_t *refresh_at);
+/*!
+ * \brief DNSSEC resign zone, store new records into changeset. Valid signatures
+ *        and NSEC(3) records will not be changed.
+ *
+ * \param zone         Zone contents to be signed.
+ * \param out_ch       New records will be added to this changeset.
+ * \param flags        Zone signing flags.
+ * \param refresh_at   Signature refresh time of the oldest signature in zone.
+ *
+ * \return Error code, KNOT_EOK if successful.
+ */
+int knot_dnssec_zone_sign(zone_update_t *update, zone_sign_flags_t flags,
+                          uint32_t *refresh_at);
 
-int knot_dnssec_sign_changeset(zone_update_t *update,
-                               conf_zone_t *config,
-                               uint32_t *refresh_at);
+/*!
+ * \brief Sign changeset created by DDNS or zone-diff.
+ *
+ * \param zone            Zone contents to be signed.
+ * \param in_ch           Changeset created bvy DDNS or zone-diff
+ * \param out_ch          New records will be added to this changeset.
+ * \param refresh_at      Signature refresh time of the new signatures.
+ *
+ * \return Error code, KNOT_EOK if successful.
+ */
+int knot_dnssec_sign_changeset(zone_update_t *update, uint32_t *refresh_at);
 
 /*! @} */

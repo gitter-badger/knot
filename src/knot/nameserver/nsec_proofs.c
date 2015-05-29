@@ -1,4 +1,4 @@
-/*  Copyright (C) 2013 CZ.NIC, z.s.p.o. <knot-dns@labs.nic.cz>
+/*  Copyright (C) 2014 CZ.NIC, z.s.p.o. <knot-dns@labs.nic.cz>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -14,6 +14,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "libknot/libknot.h"
 #include "knot/nameserver/nsec_proofs.h"
 #include "knot/nameserver/process_query.h"
 #include "knot/nameserver/internet.h"
@@ -485,13 +486,22 @@ dbg_ns_exec_verb(
 	// search for previous until we find name lesser than wildcard
 	assert(closest_encloser != NULL);
 
-	knot_dname_t *wildcard =
-		ns_wildcard_child_name(closest_encloser->owner);
+	knot_dname_t *wildcard = ns_wildcard_child_name(closest_encloser->owner);
 	if (wildcard == NULL) {
 		return KNOT_ERROR; /* servfail */
 	}
 
+//<<<<<<< HEAD
+#warning check this merge
 	const zone_node_t *prev_new = zone_read_previous_for_type(zr, wildcard, KNOT_RRTYPE_ANY);
+//=======
+//	const zone_node_t *prev_new = zone_contents_find_previous(zone, wildcard);
+//	while (prev_new->flags != NODE_FLAGS_AUTH) {
+//		prev_new = prev_new->prev;
+//	}
+
+//	/* Directly discard dname. */
+//>>>>>>> master
 	knot_dname_free(&wildcard, NULL);
 
 	if (prev_new != previous) {

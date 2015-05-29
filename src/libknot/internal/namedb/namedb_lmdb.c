@@ -15,21 +15,23 @@
 */
 
 #include <assert.h>
-#include <stdlib.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "libknot/internal/macros.h"
 #include "libknot/internal/namedb/namedb_lmdb.h"
-#include "libknot/errcode.h"
-
-#ifdef HAVE_LMDB
+#include "libknot/internal/errcode.h"
 
 #include <lmdb.h>
 
 /* Defines */
 #define LMDB_DIR_MODE   0770
 #define LMDB_FILE_MODE  0660
+
+const unsigned NAMEDB_LMDB_NOTLS = MDB_NOTLS;
 
 struct lmdb_env
 {
@@ -43,11 +45,20 @@ struct lmdb_env
  * \brief Convert error code returned by LMDB to Knot DNS error code.
  *
  * LMDB defines own error codes but uses additional ones from libc:
- * - LMDB error codes do not conflict with Knot DNS ones.
+ * - LMDB errors do not conflict with Knot DNS ones.
+ * - Significant LMDB errors are mapped to Knot DNS ones.
  * - Standard errors are converted to negative value to match Knot DNS mapping.
  */
 static int lmdb_error_to_knot(int error)
 {
+	if (error == MDB_SUCCESS) {
+		return KNOT_EOK;
+	}
+
+	if (error == MDB_MAP_FULL || error == MDB_TXN_FULL || error == ENOSPC) {
+		return KNOT_ESPACE;
+	}
+
 	return -abs(error);
 }
 
@@ -77,7 +88,7 @@ static int set_mapsize(MDB_env *env, size_t map_size)
 	if (ret != MDB_SUCCESS) {
 		return lmdb_error_to_knot(ret);
 	}
-	
+
 	return KNOT_EOK;
 }
 
@@ -104,28 +115,47 @@ static int dbase_open_env(struct lmdb_env *env, struct namedb_lmdb_opts *opts)
 		mdb_env_close(mdb_env);
 		return ret;
 	}
-	
+
 	ret = set_mapsize(mdb_env, opts->mapsize);
 	if (ret != KNOT_EOK) {
 		mdb_env_close(mdb_env);
 		return ret;
 	}
-	
+
 	ret = mdb_env_set_maxdbs(mdb_env, opts->maxdbs);
 	if (ret != MDB_SUCCESS) {
 		mdb_env_close(mdb_env);
 		return lmdb_error_to_knot(ret);
 	}
 
+#ifdef __OpenBSD__
+	/*
+	 * Enforce that MDB_WRITEMAP is set.
+	 *
+	 * MDB assumes a unified buffer cache.
+	 *
+	 * See http://www.openldap.org/pub/hyc/mdm-paper.pdf section 3.1,
+	 * references 17, 18, and 19.
+	 *
+	 * From Howard Chu: "This requirement can be relaxed in the
+	 * current version of the library. If you create the environment
+	 * with the MDB_WRITEMAP option then all reads and writes are
+	 * performed using mmap, so the file buffer cache is irrelevant.
+	 * Of course then you lose the protection that the read-only
+	 * map offers."
+	 */
+	opts->flags.env |= MDB_WRITEMAP;
+#endif
+
 	ret = mdb_env_open(mdb_env, opts->path, opts->flags.env, LMDB_FILE_MODE);
 	if (ret != MDB_SUCCESS) {
 		mdb_env_close(mdb_env);
 		return lmdb_error_to_knot(ret);
 	}
-	
+
 	/* Keep the environment pointer. */
 	env->env = mdb_env;
-	
+
 	return KNOT_EOK;
 }
 
@@ -165,7 +195,7 @@ static int init(namedb_t **db_ptr, mm_ctx_t *mm, void *arg)
 	if (env == NULL) {
 		return KNOT_ENOMEM;
 	}
-	
+
 	memset(env, 0, sizeof(struct lmdb_env));
 	env->pool = mm;
 
@@ -395,10 +425,20 @@ static int insert(namedb_txn_t *txn, namedb_val_t *key, namedb_val_t *val, unsig
 	MDB_val db_key = { key->len, key->data };
 	MDB_val data = { val->len, val->data };
 
-	int ret = mdb_put(txn->txn, env->dbi, &db_key, &data, 0);
+	/* Reserve if only size is declared. */
+	unsigned mdb_flags = 0;
+	if (val->len > 0 && val->data == NULL) {
+		mdb_flags |= MDB_RESERVE;
+	}
+
+	int ret = mdb_put(txn->txn, env->dbi, &db_key, &data, mdb_flags);
 	if (ret != MDB_SUCCESS) {
 		return lmdb_error_to_knot(ret);
 	}
+
+	/* Update the result. */
+	val->data = data.mv_data;
+	val->len = data.mv_size;
 
 	return KNOT_EOK;
 }
@@ -417,7 +457,6 @@ static int del(namedb_txn_t *txn, namedb_val_t *key)
 	return KNOT_EOK;
 }
 
-
 const namedb_api_t *namedb_lmdb_api(void)
 {
 	static const namedb_api_t api = {
@@ -430,12 +469,3 @@ const namedb_api_t *namedb_lmdb_api(void)
 
 	return &api;
 }
-
-#else
-
-const namedb_api_t *namedb_lmdb_api(void)
-{
-	return NULL;
-}
-
-#endif

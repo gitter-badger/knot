@@ -9,6 +9,7 @@
 *.orig
 *.lo
 *.rej
+*.pyc
 .libs/
 .deps/
 .dirstamp
@@ -24,10 +25,9 @@
 /patches/Makefile.in
 /samples/Makefile
 /samples/Makefile.in
+/samples/knot.sample.conf
 /doc/Makefile
 /doc/Makefile.in
-/man/Makefile
-/man/Makefile.in
 /aclocal.m4
 /ar-lib
 /autoscan.log
@@ -55,10 +55,8 @@
 /m4/ltsugar.m4
 /m4/ltversion.m4
 /m4/lt~obsolete.m4
-/src/knot/conf/libknotd_la-cf-lex.c
-/src/knot/conf/libknotd_la-cf-parse.c
-/src/knot/conf/libknotd_la-cf-parse.h
-/libknot.pc
+/src/dnssec/libdnssec.pc
+/src/libknot.pc
 
 # dnstap
 /src/dnstap/Makefile
@@ -71,14 +69,20 @@
 /src/zscanner/tests/tmp/
 /src/zscanner/tests/unittests
 /src/zscanner/tests/zscanner-tool
+/src/zscanner/libzscanner.pc
 
 # Binaries
 /src/knotc
 /src/knotd
+/src/knot1to2
 /src/kdig
 /src/khost
 /src/knsupdate
 /src/knsec3hash
+/src/rosedb_tool
+
+# Plugin binaries
+/src/rosedb_tool
 
 # Code coverage
 *.gcda
@@ -86,6 +90,13 @@
 /coverage.info
 /coverage.html
 
-# sphinx documentation
-/doc/_build/
-/doc/conf.py
+# sphinx-build manpages
+/doc/man/kdig.1
+/doc/man/keymgr.8
+/doc/man/khost.1
+/doc/man/knot.conf.5
+/doc/man/knot1to2.1
+/doc/man/knotc.8
+/doc/man/knotd.8
+/doc/man/knsec3hash.1
+/doc/man/knsupdate.1

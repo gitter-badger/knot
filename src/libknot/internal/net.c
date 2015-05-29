@@ -15,6 +15,7 @@
  */
 
 #include <stdlib.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
@@ -32,15 +33,16 @@
 #include <sys/stat.h>
 #include <assert.h>
 
+#include "libknot/internal/macros.h"
 #include "libknot/internal/net.h"
-#include "libknot/errcode.h"
+#include "libknot/internal/errcode.h"
 
 static int socket_create(int family, int type, int proto)
 {
 	/* Create socket. */
 	int ret = socket(family, type, proto);
 	if (ret < 0) {
-		return knot_map_errno(EACCES, EINVAL, ENOMEM);
+		return knot_map_errno();
 	}
 
 	return ret;
@@ -56,30 +58,49 @@ int net_unbound_socket(int type, const struct sockaddr_storage *ss)
 	return socket_create(ss->ss_family, type, 0);
 }
 
-static void allow_freebind(int socket, int family)
+/*!
+ * \brief Get setsock option for binding non-local address.
+ */
+static int nonlocal_option(int family)
 {
-#if defined(IP_FREEBIND) || defined(IP_BINDANY) || defined(IPV6_BINDANY)
-	int flag = 1;
+	int opt4 = 0;
+	int opt6 = 0;
+
+#if defined(IP_FREEBIND)
+	opt4 = opt6 = IP_FREEBIND;
+#else
+#  if defined(IP_BINDANY)
+	opt4 = IP_BINDANY;
+#  endif
+#  if defined(IPV6_BINDANY)
+	opt6 = IPV6_BINDANY;
+#  endif
 #endif
 
-#ifdef IP_FREEBIND
-	(void) setsockopt(socket, IPPROTO_IP, IP_FREEBIND, &flag, sizeof(flag));
-#endif
-
-#ifdef IP_BINDANY
-	if (family == AF_INET) {
-		(void) setsockopt(socket, IPPROTO_IP, IP_BINDANY, &flag, sizeof(flag));
+	switch (family) {
+	case AF_INET:  return opt4;
+	case AF_INET6: return opt6;
+	default:
+		return 0;
 	}
-#endif
-#ifdef IPV6_BINDANY
-	if (family == AF_INET6) {
-		(void) setsockopt(socket, IPPROTO_IPV6, IPV6_BINDANY, &flag, sizeof(flag));
-	}
-#endif
 }
 
+static void enable_nonlocal(int socket, int family)
+{
+	int option = nonlocal_option(family);
+	if (option == 0) {
+		return;
+	}
 
-int net_bound_socket(int type, const struct sockaddr_storage *ss)
+	int enable = 1;
+	assert(family == AF_INET || family == AF_INET6);
+	int level = family == AF_INET ? IPPROTO_IP : IPPROTO_IPV6;
+
+	(void) setsockopt(socket, level, option, &enable, sizeof(enable));
+}
+
+int net_bound_socket(int type, const struct sockaddr_storage *ss,
+                     enum net_flags flags)
 {
 	/* Create socket. */
 	int socket = net_unbound_socket(type, ss);
@@ -107,13 +128,15 @@ int net_bound_socket(int type, const struct sockaddr_storage *ss)
 	}
 
 	/* Allow bind to non-local address. */
-	allow_freebind(socket, ss->ss_family);
+	if (flags & NET_BIND_NONLOCAL) {
+		enable_nonlocal(socket, ss->ss_family);
+	}
 
 	/* Bind to specified address. */
 	const struct sockaddr *sa = (const struct sockaddr *)ss;
 	int ret = bind(socket, sa, sockaddr_len(sa));
 	if (ret < 0) {
-		ret = knot_map_errno(EADDRINUSE, EINVAL, EACCES, ENOMEM);
+		ret = knot_map_errno();
 		close(socket);
 		return ret;
 	}
@@ -136,8 +159,8 @@ int net_connected_socket(int type, const struct sockaddr_storage *dst_addr,
 	}
 
 	/* Bind to specific source address - if set. */
-	if (src_addr != NULL && src_addr->ss_family != AF_UNSPEC) {
-		socket = net_bound_socket(type, src_addr);
+	if (sockaddr_len((const struct sockaddr *)src_addr) > 0) {
+		socket = net_bound_socket(type, src_addr, 0);
 	} else {
 		socket = net_unbound_socket(type, dst_addr);
 	}
@@ -154,8 +177,7 @@ int net_connected_socket(int type, const struct sockaddr_storage *dst_addr,
 	int ret = connect(socket, sa, sockaddr_len(sa));
 	if (ret != 0 && errno != EINPROGRESS) {
 		close(socket);
-		return knot_map_errno(EACCES, EADDRINUSE, EAGAIN,
-		                      ECONNREFUSED, EISCONN);
+		return knot_map_errno();
 	}
 
 	return socket;
@@ -168,8 +190,7 @@ int net_is_connected(int fd)
 	return getpeername(fd, (struct sockaddr *)&ss, &len) == 0;
 }
 
-/*! \brief Wait for data and return true if data arrived. */
-static int tcp_wait_for_data(int fd, struct timeval *timeout)
+static int select_read(int fd, struct timeval *timeout)
 {
 	fd_set set;
 	FD_ZERO(&set);
@@ -177,12 +198,21 @@ static int tcp_wait_for_data(int fd, struct timeval *timeout)
 	return select(fd + 1, &set, NULL, NULL, timeout);
 }
 
+static int select_write(int fd, struct timeval *timeout)
+{
+	fd_set set;
+	FD_ZERO(&set);
+	FD_SET(fd, &set);
+
+	return select(fd + 1, NULL, &set, NULL, timeout);
+}
+
 /* \brief Receive a block of data from TCP socket with wait. */
-static int tcp_recv_data(int fd, uint8_t *buf, int len, struct timeval *timeout)
+static int recv_data(int fd, uint8_t *buf, int len, bool oneshot, struct timeval *timeout)
 {
 	int ret = 0;
 	int rcvd = 0;
-	int flags = 0;
+	int flags = MSG_DONTWAIT;
 
 #ifdef MSG_NOSIGNAL
 	flags |= MSG_NOSIGNAL;
@@ -193,7 +223,12 @@ static int tcp_recv_data(int fd, uint8_t *buf, int len, struct timeval *timeout)
 		ret = recv(fd, buf + rcvd, len - rcvd, flags);
 		if (ret > 0) {
 			rcvd += ret;
-			continue;
+			/* One-shot recv() */
+			if (oneshot) {
+				return ret;
+			} else {
+				continue;
+			}
 		}
 		/* Check for disconnected socket. */
 		if (ret == 0) {
@@ -203,8 +238,8 @@ static int tcp_recv_data(int fd, uint8_t *buf, int len, struct timeval *timeout)
 		/* Check for no data available. */
 		if (errno == EAGAIN || errno == EINTR) {
 			/* Continue only if timeout didn't expire. */
-			ret = tcp_wait_for_data(fd, timeout);
-			if (ret) {
+			ret = select_read(fd, timeout);
+			if (ret > 0) {
 				continue;
 			} else {
 				return KNOT_ETIMEOUT;
@@ -217,8 +252,7 @@ static int tcp_recv_data(int fd, uint8_t *buf, int len, struct timeval *timeout)
 	return rcvd;
 }
 
-int udp_send_msg(int fd, const uint8_t *msg, size_t msglen,
-                 const struct sockaddr *addr)
+int udp_send_msg(int fd, const uint8_t *msg, size_t msglen, const struct sockaddr *addr)
 {
 	socklen_t addr_len = sockaddr_len(addr);
 	int ret = sendto(fd, msg, msglen, 0, addr, addr_len);
@@ -229,18 +263,79 @@ int udp_send_msg(int fd, const uint8_t *msg, size_t msglen,
 	return ret;
 }
 
-int udp_recv_msg(int fd, uint8_t *buf, size_t len, struct sockaddr *addr)
+int udp_recv_msg(int fd, uint8_t *buf, size_t len, struct timeval *timeout)
 {
-	socklen_t addr_len = sizeof(struct sockaddr_storage);
-	int ret = recvfrom(fd, buf, len, 0, addr, &addr_len);
-	if (ret < 0) {
-		return KNOT_ECONN;
-	}
-
-	return ret;
+	return recv_data(fd, buf, len, true, timeout);
 }
 
-int tcp_send_msg(int fd, const uint8_t *msg, size_t msglen)
+/*!
+ * \brief Shift processed data out of iovec structure.
+ */
+static void iovec_shift(struct iovec **iov_ptr, int *iovcnt_ptr, size_t done)
+{
+	struct iovec *iov = *iov_ptr;
+	int iovcnt = *iovcnt_ptr;
+
+	for (int i = 0; i < iovcnt && done > 0; i++) {
+		if (iov[i].iov_len > done) {
+			iov[i].iov_base += done;
+			iov[i].iov_len -= done;
+			done = 0;
+		} else {
+			done -= iov[i].iov_len;
+			*iov_ptr += 1;
+			*iovcnt_ptr -= 1;
+		}
+	}
+
+	assert(done == 0);
+}
+
+/*!
+ * \brief Send out TCP data with timeout in case the output buffer is full.
+ */
+static int send_data(int fd, struct iovec iov[], int iovcnt, struct timeval *timeout)
+{
+	size_t total = 0;
+	for (int i = 0; i < iovcnt; i++) {
+		total += iov[i].iov_len;
+	}
+
+	for (size_t avail = total; avail > 0; /* nop */) {
+		ssize_t sent = writev(fd, iov, iovcnt);
+		if (sent == avail) {
+			break;
+		}
+
+		/* Short write. */
+		if (sent > 0) {
+			avail -= sent;
+			iovec_shift(&iov, &iovcnt, sent);
+			continue;
+		}
+
+		/* Error. */
+		if (sent == -1) {
+			if (errno == EAGAIN || errno == EINTR) {
+				int ret = select_write(fd, timeout);
+				if (ret > 0) {
+					continue;
+				} else if (ret == 0) {
+					return KNOT_ETIMEOUT;
+				}
+			}
+
+			return KNOT_ECONN;
+		}
+
+		/* Unreachable. */
+		assert(0);
+	}
+
+	return total;
+}
+
+int tcp_send_msg(int fd, const uint8_t *msg, size_t msglen, struct timeval *timeout)
 {
 	/* Create iovec for gathered write. */
 	struct iovec iov[2];
@@ -251,10 +346,9 @@ int tcp_send_msg(int fd, const uint8_t *msg, size_t msglen)
 	iov[1].iov_len = msglen;
 
 	/* Send. */
-	int total_len = iov[0].iov_len + iov[1].iov_len;
-	int sent = writev(fd, iov, 2);
-	if (sent != total_len) {
-		return KNOT_ECONN;
+	ssize_t ret = send_data(fd, iov, 2, timeout);
+	if (ret < 0) {
+		return ret;
 	}
 
 	return msglen; /* Do not count the size prefix. */
@@ -268,7 +362,7 @@ int tcp_recv_msg(int fd, uint8_t *buf, size_t len, struct timeval *timeout)
 
 	/* Receive size. */
 	unsigned short pktsize = 0;
-	int ret = tcp_recv_data(fd, (uint8_t *)&pktsize, sizeof(pktsize), timeout);
+	int ret = recv_data(fd, (uint8_t *)&pktsize, sizeof(pktsize), false, timeout);
 	if (ret != sizeof(pktsize)) {
 		return ret;
 	}
@@ -281,10 +375,5 @@ int tcp_recv_msg(int fd, uint8_t *buf, size_t len, struct timeval *timeout)
 	}
 
 	/* Receive payload. */
-	ret = tcp_recv_data(fd, buf, pktsize, timeout);
-	if (ret != pktsize) {
-		return ret;
-	}
-
-	return ret;
+	return recv_data(fd, buf, pktsize, false, timeout);
 }

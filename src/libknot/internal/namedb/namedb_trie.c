@@ -16,9 +16,8 @@
 
 #include <assert.h>
 
-#include "libknot/errcode.h"
-
 #include "libknot/internal/macros.h"
+#include "libknot/internal/errcode.h"
 #include "libknot/internal/namedb/namedb_trie.h"
 #include "libknot/internal/trie/hat-trie.h"
 #include "libknot/internal/mempattern.h"
@@ -128,6 +127,11 @@ static int find(namedb_txn_t *txn, namedb_val_t *key, namedb_val_t *val, unsigne
 
 static int insert(namedb_txn_t *txn, namedb_val_t *key, namedb_val_t *val, unsigned flags)
 {
+	/* No flags supported. */
+	if (flags != 0) {
+		return KNOT_ENOTSUP;
+	}
+
 	value_t *ret = hattrie_get((hattrie_t *)txn->db, key->data, key->len);
 	if (ret == NULL) {
 		return KNOT_ENOMEM;

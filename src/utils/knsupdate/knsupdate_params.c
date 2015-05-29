@@ -40,6 +40,7 @@ static const style_t DEFAULT_STYLE_NSUPDATE = {
 		.empty_ttl = false,
 		.human_ttl = false,
 		.human_tmstamp = true,
+		.generic = false,
 		.ascii_to_idn = NULL
 	},
 	.show_query = false,
@@ -236,9 +237,7 @@ int knsupdate_parse(knsupdate_params_t *params, int argc, char *argv[])
 			if (ret != KNOT_EOK) return ret;
 			break;
 		case 'k':
-			ret = KNOT_ENOTSUP;
-			if (ret != KNOT_EOK) return ret;
-			break;
+			return KNOT_ENOTSUP;
 		default:
 			knsupdate_help();
 			return KNOT_ENOTSUP;

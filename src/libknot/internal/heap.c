@@ -37,6 +37,8 @@
  * ------
  ***/
 
+
+#include "libknot/internal/macros.h"
 #include "libknot/internal/heap.h"
 #include <string.h>
 #include <stdlib.h>
@@ -48,7 +50,6 @@ static inline void heap_swap(heap_val_t *e1, heap_val_t *e2)
 	*e1 = *e2;
 	*e2 = tmp;
 }
-
 
 int heap_init(struct heap *h, int (*cmp)(void *, void *), int init_size)
 {

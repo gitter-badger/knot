@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <inttypes.h>
 
+#include "libknot/libknot.h"
 #include "libknot/internal/strlcat.h"
 #include "libknot/internal/strlcpy.h"
 #include "libknot/internal/macros.h"
@@ -41,9 +42,9 @@
 #include "knot/updates/zone-update.h"
 #include "knot/updates/apply.h"
 
-#define ERROR(zone, fmt...) log_zone_error(zone, "zone loader, " fmt)
-#define WARNING(zone, fmt...) log_zone_warning(zone, "zone loader, " fmt)
-#define INFO(zone, fmt...) log_zone_info(zone, "zone loader, " fmt)
+#define ERROR(zone, fmt, ...) log_zone_error(zone, "zone loader, " fmt, ##__VA_ARGS__)
+#define WARNING(zone, fmt, ...) log_zone_warning(zone, "zone loader, " fmt, ##__VA_ARGS__)
+#define INFO(zone, fmt, ...) log_zone_info(zone, "zone loader, " fmt, ##__VA_ARGS__)
 
 void process_error(zs_scanner_t *s)
 {
@@ -177,7 +178,8 @@ static void scanner_process(zs_scanner_t *scanner)
 	knot_rdataset_clear(&rr.rrs, NULL);
 }
 
-int zonefile_open(zloader_t *loader, const char *source, const char *origin)
+int zonefile_open(zloader_t *loader, const char *source,
+                  const knot_dname_t *origin)
 {
 	if (!loader) {
 		return KNOT_EINVAL;
@@ -195,18 +197,26 @@ int zonefile_open(zloader_t *loader, const char *source, const char *origin)
 	}
 	memset(zc, 0, sizeof(zcreator_t));
 
+	/* Prepare textual owner for zone scanner. */
+	char *origin_str = knot_dname_to_str_alloc(origin);
+	if (origin_str == NULL) {
+		free(zc);
+		return KNOT_ENOMEM;
+	}
+
 	/* Create file loader. */
 	memset(loader, 0, sizeof(zloader_t));
-	loader->scanner = zs_scanner_create(origin, KNOT_CLASS_IN, 3600,
+	loader->scanner = zs_scanner_create(origin_str, KNOT_CLASS_IN, 3600,
 	                                    scanner_process, process_error,
 	                                    zc);
 	if (loader->scanner == NULL) {
+		free(origin_str);
 		free(zc);
 		return KNOT_ERROR;
 	}
 
 	loader->source = strdup(source);
-	loader->origin = strdup(origin);
+	loader->origin = origin_str;
 	loader->creator = zc;
 
 	return KNOT_EOK;
@@ -244,9 +254,9 @@ int zonefile_load(zloader_t *loader)
 	}
 	
 	// Apply possible changes to the zone contents.
-	if (!journal_exists(zone->conf->ixfr_db)) {
+	/*if (!journal_exists(zone->conf->ixfr_db)) {
 		return KNOT_EOK;
-	}
+	}*/
 
 	/* Fetch SOA serial. */
 	const uint32_t serial = zone_update_current_serial(zc->up);
@@ -256,8 +266,8 @@ int zonefile_load(zloader_t *loader)
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
-
-	ret = journal_load_changesets(zone, &ch, serial, serial - 1);
+	char *path = conf_journalfile(conf(), zone->name);
+	ret = journal_load_changesets(path, zone, &ch, serial, serial - 1);
 	if ((ret != KNOT_EOK && ret != KNOT_ERANGE) || changeset_empty(&ch)) {
 		changeset_clear(&ch);
 		/* Absence of records is not an error. */
@@ -267,6 +277,7 @@ int zonefile_load(zloader_t *loader)
 			return ret;
 		}
 	}
+	free(path);
 
 	// Apply changes fetched from jurnal. */
 	ret = apply_changeset_directly(zc->up->new_cont, &ch);
@@ -327,7 +338,7 @@ int zonefile_write(const char *path, zone_read_t *zr,
 	FILE *f = fdopen(fd, "w");
 	if (f == NULL) {
 		WARNING(zname, "failed to open zone, file '%s' (%s)",
-		        new_fname, knot_strerror(knot_map_errno(errno)));
+		        new_fname, knot_strerror(knot_map_errno()));
 		unlink(new_fname);
 		free(new_fname);
 		return KNOT_ERROR;

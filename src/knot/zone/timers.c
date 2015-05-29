@@ -18,6 +18,7 @@
 #include "libknot/internal/namedb/namedb.h"
 #include "libknot/internal/namedb/namedb_lmdb.h"
 #include "libknot/internal/mem.h"
+#include "libknot/internal/errcode.h"
 #include "knot/zone/timers.h"
 #include "knot/zone/zonedb.h"
 

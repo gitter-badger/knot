@@ -28,6 +28,7 @@
 
 #include "libknot/packet/pkt.h"
 #include "libknot/processing/layer.h"
+#include "libknot/internal/errcode.h"
 #include "knot/zone/contents.h"
 
 /* Query data (from query processing). */
@@ -93,43 +94,43 @@ int ns_put_rr(knot_pkt_t *pkt, const knot_rrset_t *rr,
 #define NS_NEED_QTYPE(qdata, qtype_want, error_rcode) \
 	if (knot_pkt_qtype((qdata)->query) != (qtype_want)) { \
 		qdata->rcode = (error_rcode); \
-		return KNOT_NS_PROC_FAIL; \
+		return KNOT_STATE_FAIL; \
 	}
 
 /*! \brief Require given QUERY NAME or return error code. */
 #define NS_NEED_QNAME(qdata, qname_want, error_rcode) \
 	if (!knot_dname_is_equal(knot_pkt_qname((qdata)->query), (qname_want))) { \
 		qdata->rcode = (error_rcode); \
-		return KNOT_NS_PROC_FAIL; \
+		return KNOT_STATE_FAIL; \
 	}
 
 /*! \brief Require existing zone or return failure. */
 #define NS_NEED_ZONE(qdata, error_rcode) \
 	if ((qdata)->zr.zone == NULL) { \
 		qdata->rcode = (error_rcode); \
-		return KNOT_NS_PROC_FAIL; \
+		return KNOT_STATE_FAIL; \
 	}
 
 /*! \brief Require existing zone contents or return failure. */
 #define NS_NEED_ZONE_CONTENTS(qdata, error_rcode) \
 	if ((qdata)->zr.zone->contents == NULL) { \
 		qdata->rcode = (error_rcode); \
-		return KNOT_NS_PROC_FAIL; \
+		return KNOT_STATE_FAIL; \
 	}
 
 /*! \brief Require authentication. */
-#define NS_NEED_AUTH(acl, qdata) \
-	if (!process_query_acl_check((acl), (qdata))) { \
-		return KNOT_NS_PROC_FAIL; \
+#define NS_NEED_AUTH(qdata, zone_name, action) \
+	if (!process_query_acl_check((zone_name), (action), (qdata))) { \
+		return KNOT_STATE_FAIL; \
 	} else { \
 		if (process_query_verify(qdata) != KNOT_EOK) { \
-			return KNOT_NS_PROC_FAIL; \
+			return KNOT_STATE_FAIL; \
 		} \
 	}
 
 #define NS_NEED_TSIG_SIGNED(tsig_ctx, max_unsigned) \
 	if (tsig_unsigned_count(tsig_ctx) > max_unsigned) { \
-		return KNOT_NS_PROC_FAIL; \
+		return KNOT_STATE_FAIL; \
 	}
 
 /*! @} */

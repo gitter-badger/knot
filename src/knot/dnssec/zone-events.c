@@ -21,6 +21,7 @@
 #include "dnssec/event.h"
 #include "libknot/internal/macros.h"
 #include "libknot/internal/mem.h"
+#include "libknot/libknot.h"
 #include "knot/conf/conf.h"
 #include "knot/dnssec/context.h"
 #include "knot/dnssec/policy.h"
@@ -37,14 +38,28 @@ static bool has_policy(const kdnssec_ctx_t *ctx)
 	return ctx && ctx->policy && ctx->policy->name;
 }
 
-static int sign_init(zone_update_t *update, const conf_zone_t *config,
-                     int flags, kdnssec_ctx_t *ctx)
+static int sign_init(zone_update_t *update, int flags, kdnssec_ctx_t *ctx)
 {
 	assert(update);
-	assert(config);
 	assert(ctx);
 
-	int r = kdnssec_ctx_init(ctx, config->dnssec_keydir, config->name);
+	const knot_dname_t *zone_name = update->zone->name;
+
+	conf_val_t val = conf_zone_get(conf(), C_STORAGE, zone_name);
+	char *storage = conf_abs_path(&val, NULL);
+	val = conf_zone_get(conf(), C_KASP_DB, zone_name);
+	char *kasp_db = conf_abs_path(&val, storage);
+	free(storage);
+
+	char *zone_name_str = knot_dname_to_str_alloc(zone_name);
+	if (zone_name_str == NULL) {
+		free(kasp_db);
+		return KNOT_ENOMEM;
+	}
+
+	int r = kdnssec_ctx_init(ctx, kasp_db, zone_name_str);
+	free(zone_name_str);
+	free(kasp_db);
 	if (r != KNOT_EOK) {
 		return r;
 	}
@@ -54,7 +69,7 @@ static int sign_init(zone_update_t *update, const conf_zone_t *config,
 	if (has_policy(ctx)) {
 		update_policy_from_zone(ctx->policy, update);
 	} else {
-		set_default_policy(ctx->policy, config, update);
+		set_default_policy(ctx->policy, update);
 	}
 
 	const zone_node_t *apex = zone_update_get_apex(update);
@@ -70,7 +85,8 @@ static int sign_init(zone_update_t *update, const conf_zone_t *config,
 	if (flags & ZONE_SIGN_KEEP_SOA_SERIAL) {
 		ctx->new_serial = ctx->old_serial;
 	} else {
-		ctx->new_serial = serial_next(ctx->old_serial, config->serial_policy);
+		val = conf_zone_get(conf(), C_SERIAL_POLICY, zone_name);
+		ctx->new_serial = serial_next(ctx->old_serial, conf_opt(&val));
 	}
 
 	return KNOT_EOK;
@@ -143,7 +159,7 @@ static uint32_t schedule_next(kdnssec_ctx_t *kctx, const zone_keyset_t *keyset,
 
 	// DNSKEY modification
 
-	uint32_t dnskey_update = knot_get_next_zone_key_event(keyset);
+	uint32_t dnskey_update = MIN(MAX(knot_get_next_zone_key_event(keyset), 0), UINT32_MAX);
 
 	// zone events
 
@@ -163,10 +179,10 @@ static uint32_t schedule_next(kdnssec_ctx_t *kctx, const zone_keyset_t *keyset,
 	return next;
 }
 
-int knot_dnssec_zone_sign(zone_update_t *update, const conf_zone_t *config,
-                          zone_sign_flags_t flags, uint32_t *refresh_at)
+int knot_dnssec_zone_sign(zone_update_t *update, zone_sign_flags_t flags,
+                          uint32_t *refresh_at)
 {
-	if (!update || !config || !refresh_at) {
+	if (!update || !refresh_at) {
 		return KNOT_EINVAL;
 	}
 
@@ -177,7 +193,7 @@ int knot_dnssec_zone_sign(zone_update_t *update, const conf_zone_t *config,
 
 	// signing pipeline
 
-	result = sign_init(update, config, flags, &ctx);
+	result = sign_init(update, flags, &ctx);
 	if (result != KNOT_EOK) {
 		log_zone_error(zone_name, "DNSSEC, failed to initialize (%s)",
 		knot_strerror(result));
@@ -245,7 +261,6 @@ done:
 }
 
 int knot_dnssec_sign_changeset(zone_update_t *update,
-                               conf_zone_t *config,
                                uint32_t *refresh_at)
 {
 	if (update == NULL || refresh_at == NULL) {
@@ -259,7 +274,7 @@ int knot_dnssec_sign_changeset(zone_update_t *update,
 
 	// signing pipeline
 
-	result = sign_init(update, config, ZONE_SIGN_KEEP_SOA_SERIAL, &ctx);
+	result = sign_init(update, ZONE_SIGN_KEEP_SOA_SERIAL, &ctx);
 	if (result != KNOT_EOK) {
 		log_zone_error(zone_name, "DNSSEC, failed to initialize (%s)",
 		knot_strerror(result));

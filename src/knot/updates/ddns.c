@@ -17,7 +17,9 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <urcu.h>
 
+#include "knot/common/log.h"
 #include "knot/updates/ddns.h"
 #include "knot/updates/changesets.h"
 #include "knot/updates/zone-update.h"
@@ -517,9 +519,10 @@ int ddns_process_prereqs(const knot_pkt_t *query, zone_update_t *update,
 	init_list(&rrset_list);
 
 	const knot_pktsection_t *answer = knot_pkt_section(query, KNOT_ANSWER);
+	const knot_rrset_t *answer_rr = knot_pkt_rr(answer, 0);
 	for (int i = 0; i < answer->count; ++i) {
 		// Check what can be checked, store full RRs into list
-		ret = process_prereq(&answer->rr[i], knot_pkt_qclass(query),
+		ret = process_prereq(&answer_rr[i], knot_pkt_qclass(query),
 		                     update, rcode, &rrset_list);
 		if (ret != KNOT_EOK) {
 			rrset_list_clear(&rrset_list);
@@ -546,10 +549,10 @@ int ddns_process_update(const zone_t *zone, const knot_pkt_t *query,
 	uint32_t sn_old = knot_soa_serial(zone_update_from(update));
 
 	// Process all RRs in the authority section.
-	const knot_pktsection_t *authority =
-	                knot_pkt_section(query, KNOT_AUTHORITY);
+	const knot_pktsection_t *authority = knot_pkt_section(query, KNOT_AUTHORITY);
+	const knot_rrset_t *authority_rr = knot_pkt_rr(authority, 0);
 	for (uint16_t i = 0; i < authority->count; ++i) {
-		const knot_rrset_t *rr = &authority->rr[i];
+		const knot_rrset_t *rr = &authority_rr[i];
 		// Check if RR is correct.
 		int ret = check_update(rr, query, rcode);
 		if (ret != KNOT_EOK) {
@@ -577,9 +580,9 @@ int ddns_process_update(const zone_t *zone, const knot_pkt_t *query,
 			return KNOT_ENOMEM;
 		}
 
+		conf_val_t val = conf_zone_get(conf(), C_SERIAL_POLICY, zone->name);
 		const uint32_t new_serial =
-			zone_contents_next_serial(zone->contents,
-			                          zone->conf->serial_policy);
+			zone_contents_next_serial(zone->contents, conf_opt(&val));
 		knot_soa_serial_set(&new_soa->rrs, new_serial);
 		int ret = zone_update_add(update, new_soa);
 		knot_rrset_free(&new_soa, NULL);

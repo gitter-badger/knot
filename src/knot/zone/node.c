@@ -19,7 +19,7 @@
 
 #include "knot/zone/node.h"
 #include "knot/zone/node-ref.h"
-#include "libknot/errcode.h"
+#include "libknot/libknot.h"
 #include "libknot/rrset.h"
 #include "libknot/rdataset.h"
 #include "libknot/rrtype/rrsig.h"

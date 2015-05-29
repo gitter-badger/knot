@@ -28,6 +28,7 @@
 
 #include "knot/zone/node.h"
 #include "knot/updates/zone-update.h"
+#include "knot/common/log.h"
 
 typedef enum {
 	TTL_MISMATCH = 0,

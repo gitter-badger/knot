@@ -26,7 +26,7 @@
 #include "knot/dnssec/rrset-sign.h"
 #include "libknot/descriptor.h"
 #include "libknot/dnssec/key.h"
-#include "libknot/errcode.h"
+#include "libknot/libknot.h"
 #include "libknot/packet/rrset-wire.h"
 #include "libknot/packet/wire.h"
 #include "libknot/rrset.h"
@@ -112,6 +112,7 @@ static int rrsig_write_rdata(uint8_t *rdata, const dnssec_key_t *key,
 	w += sizeof(uint16_t);
 
 	assert(w == rdata + RRSIG_RDATA_SIGNER_OFFSET);
+	assert(signer);
 	memcpy(w, signer, knot_dname_size(signer)); // signer
 
 	return KNOT_EOK;

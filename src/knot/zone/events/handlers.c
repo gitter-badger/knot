@@ -14,14 +14,16 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "dnssec/random.h"
-#include "libknot/processing/requestor.h"
-#include "libknot/rrtype/soa.h"
+#include <urcu.h>
 
-#include "knot/common/trim.h"
+#include "dnssec/random.h"
+#include "libknot/libknot.h"
 #include "libknot/internal/mempool.h"
 #include "libknot/internal/macros.h"
+#include "libknot/processing/requestor.h"
 
+#include "knot/common/log.h"
+#include "knot/common/trim.h"
 #include "knot/server/udp-handler.h"
 #include "knot/server/tcp-handler.h"
 #include "knot/updates/zone-update.h"
@@ -43,8 +45,8 @@
 /* ------------------------- zone query requesting -------------------------- */
 
 /*! \brief Zone event logging. */
-#define ZONE_QUERY_LOG(severity, zone, remote, operation, msg...) \
-	NS_PROC_LOG(severity, &remote->addr, zone->name, operation, msg)
+#define ZONE_QUERY_LOG(severity, zone, remote, operation, msg, ...) \
+	NS_PROC_LOG(severity, &(remote)->addr, zone->name, operation, msg, ##__VA_ARGS__)
 
 /*! \brief Create zone query packet. */
 static knot_pkt_t *zone_query(const zone_t *zone, uint16_t pkt_type, mm_ctx_t *mm)
@@ -89,7 +91,7 @@ static knot_pkt_t *zone_query(const zone_t *zone, uint16_t pkt_type, mm_ctx_t *m
  * \note Everything in this function is executed synchronously, returns when
  *       the query processing is either complete or an error occurs.
  */
-static int zone_query_execute(zone_t *zone, uint16_t pkt_type, const conf_iface_t *remote)
+static int zone_query_execute(zone_t *zone, uint16_t pkt_type, const conf_remote_t *remote)
 {
 	/* Create a memory pool for this task. */
 	int ret = KNOT_EOK;
@@ -111,9 +113,11 @@ static int zone_query_execute(zone_t *zone, uint16_t pkt_type, const conf_iface_
 	/* Create requestor instance. */
 	struct knot_requestor re;
 	knot_requestor_init(&re, &mm);
-	knot_requestor_overlay(&re, KNOT_NS_PROC_ANSWER, &param);
+	knot_requestor_overlay(&re, KNOT_STATE_ANSWER, &param);
 
-	tsig_init(&param.tsig_ctx, remote->key);
+	const knot_tsig_key_t *key = remote->key.name != NULL ?
+	                             &remote->key : NULL;
+	tsig_init(&param.tsig_ctx, key);
 
 	ret = tsig_sign_packet(&param.tsig_ctx, query);
 	if (ret != KNOT_EOK) {
@@ -132,7 +136,8 @@ static int zone_query_execute(zone_t *zone, uint16_t pkt_type, const conf_iface_
 	/* Send the queries and process responses. */
 	ret = knot_requestor_enqueue(&re, req);
 	if (ret == KNOT_EOK) {
-		struct timeval tv = { conf()->max_conn_reply, 0 };
+		conf_val_t val = conf_get(conf(), C_SRV, C_TCP_REPLY_TIMEOUT);
+		struct timeval tv = { conf_int(&val), 0 };
 		ret = knot_requestor_exec(&re, &tv);
 	}
 
@@ -146,15 +151,15 @@ fail:
 }
 
 /* @note Module specific, expects some variables set. */
-#define ZONE_XFER_LOG(severity, pkt_type, msg...) \
+#define ZONE_XFER_LOG(severity, pkt_type, msg, ...) \
 	if (pkt_type == KNOT_QUERY_AXFR) { \
-		ZONE_QUERY_LOG(severity, zone, master, "AXFR, incoming", msg); \
+		ZONE_QUERY_LOG(severity, zone, master, "AXFR, incoming", msg, ##__VA_ARGS__); \
 	} else { \
-		ZONE_QUERY_LOG(severity, zone, master, "IXFR, incoming", msg); \
+		ZONE_QUERY_LOG(severity, zone, master, "IXFR, incoming", msg, ##__VA_ARGS__); \
 	}
 
 /*! \brief Execute zone transfer request. */
-static int zone_query_transfer(zone_t *zone, const conf_iface_t *master, uint16_t pkt_type)
+static int zone_query_transfer(zone_t *zone, const conf_remote_t *master, uint16_t pkt_type)
 {
 	assert(zone);
 	assert(master);
@@ -213,7 +218,8 @@ static uint32_t soa_graceful_expire(const knot_rdataset_t *soa)
 {
 	// Allow for timeouts.  Otherwise zones with very short
 	// expiry may expire before the timeout is reached.
-	return knot_soa_expire(soa) + 2 * conf()->max_conn_idle;
+	conf_val_t val = conf_get(conf(), C_SRV, C_TCP_IDLE_TIMEOUT);
+	return knot_soa_expire(soa) + 2 * conf_int(&val);
 }
 
 /*! \brief Schedule expire event, unless it is already scheduled. */
@@ -227,20 +233,23 @@ static void start_expire_timer(zone_t *zone, const knot_rdataset_t *soa)
 }
 
 /*! \brief Check zone configuration constraints. */
-static void zone_set_payload(zone_t *zone)
+static bool zone_set_payload(zone_t *zone)
 {
 	/* Bootstrapped zone, no checks apply. */
 	if (zone->contents == NULL) {
-		return;
+		return KNOT_EOK;
 	}
 
 	/* Check minimum EDNS0 payload if signed. (RFC4035/sec. 3) */
 	if (zone_contents_is_signed(zone->contents)) {
-		if (conf()->max_udp_payload < KNOT_EDNS_MIN_DNSSEC_PAYLOAD) {
+		conf_val_t val = conf_get(conf, C_SRV, C_MAX_UDP_PAYLOAD);
+		if (conf_int(&val) < KNOT_EDNS_MIN_DNSSEC_PAYLOAD) {
 			log_zone_warning(zone->name, "EDNS payload size is "
 			                 "lower than %u bytes for DNSSEC zone",
 					 KNOT_EDNS_MIN_DNSSEC_PAYLOAD);
-			conf()->max_udp_payload = KNOT_EDNS_MIN_DNSSEC_PAYLOAD;
+			/* TODO: This is what was here originally by JK, but does it make sense? */
+			//conf()->max_udp_payload = KNOT_EDNS_MIN_DNSSEC_PAYLOAD;
+			return KNOT_EPAYLOAD;
 		}
 	}
 }
@@ -253,7 +262,12 @@ int event_reload(zone_t *zone)
 
 	/* Take zone file mtime and load it. */
 #warning lost the mtime WHY? let's look at the diff
-	const time_t mtime = zonefile_mtime(zone->conf->file);
+	char *filename = conf_zonefile(conf(), zone->name);
+	const time_t mtime = zonefile_mtime(filename);
+	free(filename);
+	
+	uint32_t old_serial = zone_contents_serial(zone->contents);
+
 	zone_update_t up;
 	int ret = zone_update_init(&up, zone, UPDATE_FULL | UPDATE_SIGN);
 	if (ret != KNOT_EOK) {
@@ -278,10 +292,13 @@ int event_reload(zone_t *zone)
 	zone->zonefile_mtime = mtime;
 
 	// Set max UDP payload.
-	zone_set_payload(zone);
+	ret = zone_set_payload(zone);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
 
 	/* Schedule notify and refresh after load. */
-	if (zone_master(zone)) {
+	if (!zone_is_master(zone)) {
 		zone_events_schedule(zone, ZONE_EVENT_REFRESH, ZONE_EVENT_NOW);
 	}
 	if (!zone_contents_is_empty(zone->contents)) {
@@ -290,13 +307,20 @@ int event_reload(zone_t *zone)
 	}
 
 	/* Schedule zone resign. */
-	if (zone->conf->dnssec_enable) {
+	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_SIGNING, zone->name);
+	if (conf_bool(&val)) {
 #warning LOST the refresh, CHECK the diff
 		schedule_dnssec(zone, 0);
+		//schedule_dnssec(zone, dnssec_refresh); // original
 	}
 
 	/* Periodic execution. */
-	zone_events_schedule(zone, ZONE_EVENT_FLUSH, zone->conf->dbsync_timeout);
+	val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
+	zone_events_schedule(zone, ZONE_EVENT_FLUSH, conf_int(&val));
+
+	uint32_t current_serial = zone_contents_serial(zone->contents);
+	log_zone_info(zone->name, "loaded, serial %u -> %u",
+	              old_serial, current_serial);
 
 	return zone_events_write_persistent(zone);
 }
@@ -305,9 +329,16 @@ int event_refresh(zone_t *zone)
 {
 	assert(zone);
 
-	const conf_iface_t *master = zone_master(zone);
-	if (master == NULL) {
-		/* If not slave zone, ignore. */
+	/* Ignore if master zone. */
+	if (zone_is_master(zone)) {
+		return KNOT_EOK;
+	}
+
+	/* Ignore if DNSSEC enabled. */
+	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_SIGNING, zone->name);
+	if (conf_bool(&val)) {
+		log_zone_notice(zone->name, "ignoring zone refresh due to "
+		                            "enabled automatic DNSSEC signing.");
 		return KNOT_EOK;
 	}
 
@@ -317,11 +348,12 @@ int event_refresh(zone_t *zone)
 		return KNOT_EOK;
 	}
 
-	int ret = zone_query_execute(zone, KNOT_QUERY_NORMAL, master);
+	const conf_remote_t master = zone_master(zone);
+	int ret = zone_query_execute(zone, KNOT_QUERY_NORMAL, &master);
 	const knot_rdataset_t *soa = zone_soa(zone);
 	if (ret != KNOT_EOK) {
 		/* Log connection errors. */
-		ZONE_QUERY_LOG(LOG_WARNING, zone, master, "SOA query, outgoing",
+		ZONE_QUERY_LOG(LOG_WARNING, zone, &master, "SOA query, outgoing",
 		               "failed (%s)", knot_strerror(ret));
 		/* Rotate masters if current failed. */
 		zone_master_rotate(zone);
@@ -340,6 +372,14 @@ int event_xfer(zone_t *zone)
 {
 	assert(zone);
 
+	/* Ignore if DNSSEC enabled. */
+	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_SIGNING, zone->name);
+	if (conf_bool(&val)) {
+		log_zone_notice(zone->name, "ignoring slave transfer due to "
+		                            "enabled automatic DNSSEC signing.");
+		return KNOT_EOK;
+	}
+
 	/* Determine transfer type. */
 	bool is_boostrap = zone_contents_is_empty(zone->contents);
 	uint16_t pkt_type = KNOT_QUERY_IXFR;
@@ -348,7 +388,8 @@ int event_xfer(zone_t *zone)
 	}
 
 	/* Execute zone transfer and reschedule timers. */
-	int ret = zone_query_transfer(zone, zone_master(zone), pkt_type);
+	const conf_remote_t master = zone_master(zone);
+	int ret = zone_query_transfer(zone, &master, pkt_type);
 
 	/* Handle failure during transfer. */
 	if (ret != KNOT_EOK) {
@@ -371,10 +412,12 @@ int event_xfer(zone_t *zone)
 	zone_events_schedule(zone, ZONE_EVENT_REFRESH, knot_soa_refresh(soa));
 	zone_events_schedule(zone, ZONE_EVENT_NOTIFY,  ZONE_EVENT_NOW);
 	zone_events_cancel(zone, ZONE_EVENT_EXPIRE);
-	if (zone->conf->dbsync_timeout == 0) {
+	val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
+	int64_t dbsync_timeout = conf_int(&val);
+	if (dbsync_timeout == 0) {
 		zone_events_schedule(zone, ZONE_EVENT_FLUSH, ZONE_EVENT_NOW);
 	} else if (!zone_events_is_scheduled(zone, ZONE_EVENT_FLUSH)) {
-		zone_events_schedule(zone, ZONE_EVENT_FLUSH, zone->conf->dbsync_timeout);
+		zone_events_schedule(zone, ZONE_EVENT_FLUSH, dbsync_timeout);
 	}
 
 	/* Transfer cleanup. */
@@ -439,7 +482,8 @@ int event_flush(zone_t *zone)
 	assert(zone);
 
 	/* Reschedule. */
-	int next_timeout = zone->conf->dbsync_timeout;
+	conf_val_t val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
+	int64_t next_timeout = conf_int(&val);
 	if (next_timeout > 0) {
 		zone_events_schedule(zone, ZONE_EVENT_FLUSH, next_timeout);
 	}
@@ -462,19 +506,22 @@ int event_notify(zone_t *zone)
 	}
 
 	/* Walk through configured remotes and send messages. */
-	conf_remote_t *remote = 0;
-	WALK_LIST(remote, zone->conf->acl.notify_out) {
-		conf_iface_t *iface = remote->remote;
+	conf_val_t val = conf_zone_get(conf(), C_NOTIFY, zone->name);
+	while (val.code == KNOT_EOK) {
+		conf_remote_t remote = conf_remote(conf(), &val);
 
-		int ret = zone_query_execute(zone, KNOT_QUERY_NOTIFY, iface);
+		int ret = zone_query_execute(zone, KNOT_QUERY_NOTIFY, &remote);
 		if (ret == KNOT_EOK) {
-			ZONE_QUERY_LOG(LOG_INFO, zone, iface, "NOTIFY, outgoing",
-			               "serial %u",
+			ZONE_QUERY_LOG(LOG_INFO, zone, &remote,
+			               "NOTIFY, outgoing", "serial %u",
 			               zone_contents_serial(zone->contents));
 		} else {
-			ZONE_QUERY_LOG(LOG_WARNING, zone, iface, "NOTIFY, outgoing",
-			               "failed (%s)", knot_strerror(ret));
+			ZONE_QUERY_LOG(LOG_WARNING, zone, &remote,
+			               "NOTIFY, outgoing", "failed (%s)",
+			               knot_strerror(ret));
 		}
+
+		conf_val_next(&val);
 	}
 
 	return KNOT_EOK;
@@ -505,7 +552,7 @@ int event_dnssec(zone_t *zone)
 		sign_flags = 0;
 	}
 
-	ret = knot_dnssec_zone_sign(&up, zone->conf, sign_flags, &refresh_at);
+	ret = knot_dnssec_zone_sign(&up, sign_flags, &refresh_at);
 	if (ret != KNOT_EOK) {
 		zone_update_clear(&up);
 		return ret;
@@ -521,7 +568,8 @@ int event_dnssec(zone_t *zone)
 
 	schedule_dnssec(zone, refresh_at);
 	zone_events_schedule(zone, ZONE_EVENT_NOTIFY, ZONE_EVENT_NOW);
-	if (zone->conf->dbsync_timeout == 0) {
+	conf_val_t val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
+	if (conf_int(&val) == 0) {
 		zone_events_schedule(zone, ZONE_EVENT_FLUSH, ZONE_EVENT_NOW);
 	}
 

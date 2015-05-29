@@ -19,6 +19,7 @@
 #include "knot/zone/contents.h"
 #include "knot/common/debug.h"
 #include "libknot/internal/macros.h"
+#include "libknot/libknot.h"
 #include "libknot/rrset.h"
 #include "libknot/internal/base32hex.h"
 #include "libknot/descriptor.h"
@@ -522,10 +523,10 @@ uint32_t zone_contents_next_serial(const zone_contents_t *zone, int policy)
 	uint32_t new_serial = 0;
 
 	switch (policy) {
-	case CONF_SERIAL_INCREMENT:
+	case SERIAL_POLICY_INCREMENT:
 		new_serial = (uint32_t)old_serial + 1;
 		break;
-	case CONF_SERIAL_UNIXTIME:
+	case SERIAL_POLICY_UNIXTIME:
 		new_serial = (uint32_t)time(NULL);
 		break;
 	default:

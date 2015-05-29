@@ -63,7 +63,8 @@ typedef struct zloader {
  * \retval Initialized loader on success.
  * \retval NULL on error.
  */
-int zonefile_open(zloader_t *loader, const char *source, const char *origin);
+int zonefile_open(zloader_t *loader, const char *source,
+                  const knot_dname_t *origin);
 
 /*!
  * \brief Loads zone from a zone file.

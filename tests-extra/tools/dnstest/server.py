@@ -13,9 +13,11 @@ import dns.query
 import dns.update
 from subprocess import Popen, PIPE, check_call, CalledProcessError
 from dnstest.utils import *
+import dnstest.config
 import dnstest.inquirer
 import dnstest.params as params
 import dnstest.keys
+import dnstest.module
 import dnstest.response
 import dnstest.update
 import distutils.dir_util
@@ -28,70 +30,6 @@ def zone_arg_check(zone):
         return zone[0]
     return zone
 
-class KnotConf(object):
-    '''Knot server config generator'''
-
-    def __init__(self):
-        self.conf = ""
-        self.indent = ""
-
-    def sub(self):
-        self.indent += "\t"
-
-    def unsub(self):
-        self.indent = self.indent[:-1]
-
-    def begin(self, name):
-        self.conf += "%s%s {\n" % (self.indent, name)
-        self.sub()
-
-    def end(self):
-        self.unsub()
-        self.conf += "%s}\n" % (self.indent)
-        if not self.indent:
-            self.conf += "\n"
-
-    def item(self, name, value):
-        self.conf += "%s%s %s;\n" % (self.indent, name, value)
-
-    def item_str(self, name, value):
-        self.conf += "%s%s \"%s\";\n" % (self.indent, name, value)
-
-class BindConf(object):
-    '''Bind server config generator'''
-
-    def __init__(self):
-        self.conf = ""
-        self.indent = ""
-
-    def sub(self):
-        self.indent += "\t"
-
-    def unsub(self):
-        self.indent = self.indent[:-1]
-
-    def begin(self, name, string=None):
-        if string:
-            self.conf += "%s%s \"%s\" {\n" % (self.indent, name, string)
-        else:
-            self.conf += "%s%s {\n" % (self.indent, name)
-        self.sub()
-
-    def end(self):
-        self.unsub()
-        self.conf += "%s};\n" % (self.indent)
-        if not self.indent:
-            self.conf += "\n"
-
-    def item(self, name, value=None):
-        if value:
-            self.conf += "%s%s %s;\n" % (self.indent, name, value)
-        else:
-            self.conf += "%s%s;\n" % (self.indent, name)
-
-    def item_str(self, name, value):
-        self.conf += "%s%s \"%s\";\n" % (self.indent, name, value)
-
 class Zone(object):
     '''DNS zone description'''
 
@@ -103,14 +41,14 @@ class Zone(object):
         # ixfr from differences
         self.ixfr = ixfr
         # modules
-        self.query_modules = []
+        self.modules = []
 
     @property
     def name(self):
         return self.zfile.name
 
-    def add_query_module(self, module, param):
-        self.query_modules.append((module, param))
+    def add_module(self, module):
+        self.modules.append(module)
 
 class Server(object):
     '''Specification of DNS server'''
@@ -128,9 +66,8 @@ class Server(object):
         self.proc = None
         self.valgrind = []
         self.start_params = None
-        self.reload_params = None
-        self.flush_params = None
-        self.compile_params = None
+        self.ctl_params = None
+        self.compile_cmd = None
 
         self.data_dir = None
 
@@ -154,11 +91,13 @@ class Server(object):
         self.ratelimit = None
         self.disable_any = None
         self.disable_notify = None
-        self.max_conn_idle = None
+        self.tcp_idle_timeout = None
         self.zonefile_sync = None
-        self.ixfr_fslimit = None
+        self.journal_size = None
 
         self.inquirer = None
+
+        self.modules = []
 
         # Working directory.
         self.dir = None
@@ -226,8 +165,8 @@ class Server(object):
         mode = "w" if clean else "a"
 
         try:
-            if self.compile_params:
-                self.compile()
+            if self.compile_cmd:
+                self.ctl(self.compile_cmd)
 
             if self.daemon_bin != None:
                 self.proc = Popen(self.valgrind + [self.daemon_bin] + \
@@ -246,27 +185,39 @@ class Server(object):
         if params.test.stress and self.inquirer:
             self.inquirer.start(self)
 
-    def reload(self):
+    def ctl(self, cmd, availability=True):
+        if availability:
+            # Check for listening control interface.
+            ok = False
+            for i in range(0, 5):
+                try:
+                    self.ctl("status", availability=False)
+                except Failed:
+                    time.sleep(1)
+                    continue
+                ok = True
+                break
+            if not ok:
+                self.backtrace()
+                raise Failed("Unavailable remote control server='%s'" % self.name)
+
+        # Send control command.
         try:
-            check_call([self.control_bin] + self.reload_params,
+            check_call([self.control_bin] + self.ctl_params + cmd.split(),
                        stdout=open(self.dir + "/call.out", mode="a"),
                        stderr=open(self.dir + "/call.err", mode="a"))
-            time.sleep(Server.START_WAIT)
         except CalledProcessError as e:
             self.backtrace()
-            raise Failed("Can't reload server='%s', ret='%i'" %
-                         (self.name, e.returncode))
+            raise Failed("Can't control='%s' server='%s', ret='%i'" %
+                         (cmd, self.name, e.returncode))
+
+    def reload(self):
+        self.ctl("reload")
+        time.sleep(Server.START_WAIT)
 
     def flush(self):
-        try:
-            check_call([self.control_bin] + self.flush_params,
-                       stdout=open(self.dir + "/call.out", mode="a"),
-                       stderr=open(self.dir + "/call.err", mode="a"))
-            time.sleep(Server.START_WAIT)
-        except CalledProcessError as e:
-            self.backtrace()
-            raise Failed("Can't flush server='%s', ret='%i'" %
-                         (self.name, e.returncode))
+        self.ctl("flush")
+        time.sleep(Server.START_WAIT)
 
     def running(self):
         proc = psutil.Process(self.proc.pid)
@@ -658,14 +609,13 @@ class Server(object):
             self.zones[zone.name].zfile.upd_file(storage=self.data_dir,
                                                  version=version)
 
-    def add_query_module(self, zone, module, param):
-        # Convert one item list to single object.
-        if isinstance(zone, list):
-            if len(zone) != 1:
-                raise Failed("One zone required")
-            zone = zone[0]
+    def add_module(self, zone, module):
+        zone = zone_arg_check(zone)
 
-        self.zones[zone.name].add_query_module(module, param)
+        if zone:
+            self.zones[zone.name].add_module(module)
+        else:
+            self.modules.append(module)
 
 class Bind(Server):
 
@@ -688,7 +638,7 @@ class Bind(Server):
             conf.item_str(name, value)
 
     def get_config(self):
-        s = BindConf()
+        s = dnstest.config.BindConf()
         s.begin("options")
         self._str(s, "server-id", self.ident)
         self._str(s, "version", self.version)
@@ -764,11 +714,13 @@ class Bind(Server):
                 s.item("type", "slave")
 
                 if self.tsig:
-                    s.item("allow-notify", "{ key %s; }" % z.master.tsig.name)
+                    if not z.master.disable_notify:
+                        s.item("allow-notify", "{ key %s; }" % z.master.tsig.name)
                     s.item("masters", "{ %s port %i key %s; }" \
                            % (z.master.addr, z.master.port, z.master.tsig.name))
                 else:
-                    s.item("allow-notify", "{ %s; }" % z.master.addr)
+                    if not z.master.disable_notify:
+                        s.item("allow-notify", "{ %s; }" % z.master.addr)
                     s.item("masters", "{ %s port %i; }" \
                            % (z.master.addr, z.master.port))
             else:
@@ -781,12 +733,15 @@ class Bind(Server):
             if z.slaves:
                 slaves = ""
                 for slave in z.slaves:
+                    if slave.disable_notify:
+                        continue
                     if self.tsig:
                         slaves += "%s port %i key %s; " \
                                   % (slave.addr, slave.port, self.tsig.name)
                     else:
                         slaves += "%s port %i; " % (slave.addr, slave.port)
-                s.item("also-notify", "{ %s}" % slaves)
+                if slaves:
+                    s.item("also-notify", "{ %s}" % slaves)
 
             if z.ddns:
                 if self.tsig:
@@ -807,10 +762,8 @@ class Bind(Server):
             s.end()
 
         self.start_params = ["-c", self.confile, "-g"]
-        self.reload_params = ["-s", self.addr, "-p", str(self.ctlport), \
-                              "-k", self.ctlkeyfile, "reload"]
-        self.flush_params = ["-s", self.addr, "-p", str(self.ctlport), \
-                             "-k", self.ctlkeyfile, "flush"]
+        self.ctl_params = ["-s", self.addr, "-p", str(self.ctlport), \
+                           "-k", self.ctlkeyfile]
 
         return s.conf
 
@@ -835,172 +788,197 @@ class Knot(Server):
 
     def _on_str_hex(self, conf, name, value):
         if value == True:
-            conf.item(name, "on")
+            return
         elif value == False:
-            conf.item(name, "off")
+            conf.item_str(name, "")
         elif value:
-            if isinstance(value, int) or value[:2] == "0x":
-                conf.item(name, value)
-            else:
-                conf.item_str(name, value)
+            conf.item_str(name, value)
+
+    def _key(self, conf, key):
+        conf.id_item("id", key.name)
+        conf.item_str("algorithm", key.alg)
+        conf.item_str("secret", key.key)
 
     def get_config(self):
-        s = KnotConf()
-        s.begin("system")
+        s = dnstest.config.KnotConf()
+        s.begin("server")
         self._on_str_hex(s, "identity", self.ident)
         self._on_str_hex(s, "version", self.version)
         self._on_str_hex(s, "nsid", self.nsid)
-        self._on_str_hex(s, "rate-limit", self.ratelimit)
         s.item_str("rundir", self.dir)
-        if (self.max_conn_idle):
-            s.item("max-conn-idle", self.max_conn_idle)
+        s.item_str("listen", "%s@%s" % (self.addr, self.port))
+        if (self.tcp_idle_timeout):
+            s.item_str("tcp-idle-timeout", self.tcp_idle_timeout)
+        if (self.ratelimit):
+            s.item_str("rate-limit", self.ratelimit)
         s.end()
 
         s.begin("control")
-        s.item_str("listen-on", "knot.sock")
-        s.end()
-
-        s.begin("interfaces")
-        if self.ip == 4:
-            s.begin("ipv4")
-        else:
-            s.begin("ipv6")
-        s.item("address", self.addr)
-        s.item("port", self.port)
-        s.end()
+        s.item_str("listen", "knot.sock")
         s.end()
 
         if self.tsig:
-            s.begin("keys")
-            t = self.tsig
-            s.item_str("\"%s\" %s" % (t.name, t.alg), t.key)
-            t = self.tsig_test
-            s.item_str("\"%s\" %s" % (t.name, t.alg), t.key)
+            s.begin("key")
+            self._key(s, self.tsig)
+            self._key(s, self.tsig_test)
 
             keys = set() # Duplicy check.
             for zone in sorted(self.zones):
                 z = self.zones[zone]
                 if z.master and z.master.tsig.name not in keys:
                     t = z.master.tsig
-                    s.item_str("\"%s\" %s" % (t.name, t.alg), t.key)
+                    self._key(s, t)
                     keys.add(t.name)
                 for slave in z.slaves:
                     if slave.tsig and slave.tsig.name not in keys:
                         t = slave.tsig
-                        s.item_str("\"%s\" %s" % (t.name, t.alg), t.key)
+                        self._key(s, t)
                         keys.add(t.name)
             s.end()
 
-        s.begin("remotes")
-        s.begin("local")
-        s.item("address", self.addr)
+        have_remote = False
+        servers = set() # Duplicity check.
+        for zone in sorted(self.zones):
+            z = self.zones[zone]
+            if z.master and z.master.name not in servers:
+                if not have_remote:
+                    s.begin("remote")
+                    have_remote = True
+                s.id_item("id", z.master.name)
+                s.item_str("address", "%s@%s" % (z.master.addr, z.master.port))
+                if z.master.tsig:
+                    s.item_str("key", z.master.tsig.name)
+                servers.add(z.master.name)
+            for slave in z.slaves:
+                if slave.name not in servers:
+                    if not have_remote:
+                        s.begin("remote")
+                        have_remote = True
+                    s.id_item("id", slave.name)
+                    s.item_str("address", "%s@%s" % (slave.addr, slave.port))
+                    if slave.tsig:
+                        s.item_str("key", slave.tsig.name)
+                    servers.add(slave.name)
+        if have_remote:
+            s.end()
+
+        s.begin("acl")
+        s.id_item("id", "acl_local")
+        s.item_str("address", self.addr)
         if self.tsig:
             s.item_str("key", self.tsig.name)
-        s.end()
-        s.begin("test")
-        s.item("address", self.addr)
+        s.item("action", "[transfer, notify, update]")
+
+        s.id_item("id", "acl_test")
+        s.item_str("address", self.addr)
         if self.tsig_test:
             s.item_str("key", self.tsig_test.name)
-        s.end()
+        s.item("action", "[transfer, notify, update]")
 
         servers = set() # Duplicity check.
         for zone in sorted(self.zones):
             z = self.zones[zone]
             if z.master and z.master.name not in servers:
-                s.begin(z.master.name)
-                s.item("address", z.master.addr)
-                s.item("port", z.master.port)
+                s.id_item("id", "acl_%s" % z.master.name)
+                s.item_str("address", z.master.addr)
                 if z.master.tsig:
                     s.item_str("key", z.master.tsig.name)
-                s.end()
+                s.item("action", "notify")
                 servers.add(z.master.name)
             for slave in z.slaves:
-                if slave.name not in servers:
-                    s.begin(slave.name)
-                    s.item("address", slave.addr)
-                    s.item("port", slave.port)
-                    if slave.tsig:
-                        s.item_str("key", self.tsig.name)
-                    s.end()
-                    servers.add(slave.name)
+                if slave.name in servers:
+                    continue
+                s.id_item("id", "acl_%s" % slave.name)
+                s.item_str("address", slave.addr)
+                if slave.tsig:
+                    s.item_str("key", slave.tsig.name)
+                s.item("action", "transfer")
+                servers.add(slave.name)
         s.end()
 
-        s.begin("zones")
-        s.item_str("storage", self.dir)
-        if self.zonefile_sync:
-            s.item("zonefile-sync", self.zonefile_sync)
-        else:
-            s.item("zonefile-sync", "1d")
-        if self.ixfr_fslimit:
-            s.item("ixfr-fslimit", self.ixfr_fslimit)
-        s.item("notify-timeout", "5")
-        s.item("notify-retries", "5")
-        s.item("semantic-checks", "on")
-        if self.disable_any:
-            s.item("disable-any", "on")
-        if self.dnssec_enable:
-            s.item_str("dnssec-keydir", self.keydir)
-            s.item("dnssec-enable", "on")
+        if len(self.modules) > 0:
+            for module in self.modules:
+                module.get_conf(s)
+
         for zone in sorted(self.zones):
             z = self.zones[zone]
-            s.begin(z.name)
+            if len(z.modules) > 0:
+                for module in z.modules:
+                    module.get_conf(s)
+
+        s.begin("template")
+        s.id_item("id", "default")
+        s.item_str("storage", self.dir)
+        if self.zonefile_sync:
+            s.item_str("zonefile-sync", self.zonefile_sync)
+        else:
+            s.item_str("zonefile-sync", "1d")
+        if self.journal_size:
+            s.item_str("max-journal-size", self.journal_size)
+        s.item_str("semantic-checks", "on")
+        if self.disable_any:
+            s.item_str("disable-any", "on")
+        if self.dnssec_enable:
+            s.item_str("kasp-db", self.keydir)
+            s.item_str("dnssec-signing", "on")
+        if len(self.modules) > 0:
+            modules = ""
+            for module in self.modules:
+                if modules:
+                    modules += ", "
+                modules += module.get_conf_ref()
+            s.item("module", "[%s]" % modules)
+        s.end()
+
+        s.begin("zone")
+        for zone in sorted(self.zones):
+            z = self.zones[zone]
+            s.id_item("domain", z.name)
             s.item_str("file", z.zfile.path)
 
+            acl = ""
             if z.master:
-                if not self.disable_notify:
-                    s.item("notify-in", z.master.name)
-                s.item("xfr-in", z.master.name)
+                s.item("master", z.master.name)
+                if not z.master.disable_notify:
+                    acl = "acl_%s" % z.master.name
 
-            slaves = ""
             if z.slaves:
+                slaves = ""
                 for slave in z.slaves:
+                    if slave.disable_notify:
+                        continue
                     if slaves:
                         slaves += ", "
                     slaves += slave.name
-                s.item("notify-out", slaves)
+                if slaves:
+                    s.item("notify", "[%s]" % slaves)
 
-            s.item("xfr-out", "local, test")
-
-            if z.ddns:
-                s.item("update-in", "test")
+            if acl:
+                acl += ", "
+            acl += "acl_local, acl_test"
+            s.item("acl", "[%s]" % acl)
 
             if z.ixfr and not z.master:
-                s.item("ixfr-from-differences", "on")
+                s.item_str("ixfr-from-differences", "on")
 
-            if len(z.query_modules) > 0:
-                s.begin("query_module")
-                for query_module in z.query_modules:
-                    s.item(query_module[0], '"' + query_module[1] + '"')
-                s.end()
-            s.end()
+            if len(z.modules) > 0:
+                modules = ""
+                for module in z.modules:
+                    if modules:
+                        modules += ", "
+                    modules += module.get_conf_ref()
+                s.item("module", "[%s]" % modules)
         s.end()
 
         s.begin("log")
-        s.begin("stdout")
-        s.item("any", "debug")
-        s.end()
-        s.begin("stderr")
-        s.end()
-        s.begin("syslog")
-        s.end()
+        s.id_item("target", "stdout")
+        s.item_str("any", "debug")
         s.end()
 
         self.start_params = ["-c", self.confile]
-        self.reload_params = ["-c", self.confile, "reload"]
-        self.flush_params = ["-c", self.confile, "flush"]
+        self.ctl_params = ["-c", self.confile]
 
         return s.conf
-
-    def ctl(self, params):
-        try:
-            check_call([self.control_bin] + self.start_params + params.split(),
-                       stdout=open(self.dir + "/call.out", mode="a"),
-                       stderr=open(self.dir + "/call.err", mode="a"))
-            time.sleep(Server.START_WAIT)
-        except CalledProcessError as e:
-            self.backtrace()
-            raise Failed("Can't control='%s' server='%s', ret='%i'" %
-                         (params, self.name, e.returncode))
 
 class Nsd(Server):
 
@@ -1013,7 +991,11 @@ class Nsd(Server):
 
     def get_config(self):
         self.start_params = ["-c", self.confile, "-d"]
-        self.compile_params = ["-c", self.confile, "rebuild"]
+        self.ctl_params = ["-c", self.confile]
+        self.compile_cmd = "rebuild"
+
+    def flush(self):
+        return False # Not supported
 
 class Dummy(Server):
     ''' Dummy name server. '''

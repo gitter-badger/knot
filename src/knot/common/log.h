@@ -39,11 +39,8 @@
 #include <stdbool.h>
 #include <assert.h>
 
-#include "libknot/internal/lists.h"
-
 #include "libknot/dname.h"
-
-struct conf;
+#include "knot/conf/conf.h"
 
 /*! \brief Log facility types. */
 typedef enum {
@@ -62,25 +59,6 @@ typedef enum {
 	LOG_ZONE   = 1, /*!< Zone manipulation module. */
 	LOG_ANY    = 7  /*!< Any module. */
 } logsrc_t;
-
-/*!
- * \brief Mapping of loglevels to message sources.
- */
-typedef struct conf_log_map {
-	node_t n;
-	int source; /*!< Log message source mask. */
-	int prios;  /*!< Log priorities mask. */
-} conf_log_map_t;
-
-/*!
- * \brief Log facility descriptor.
- */
-typedef struct conf_log {
-	node_t n;
-	logtype_t type;  /*!< Type of the log (SYSLOG/STDERR/FILE). */
-	char *file;      /*!< Filename in case of LOG_FILE, else NULL. */
-	list_t map;      /*!< Log levels mapping. */
-} conf_log_t;
 
 /*! \brief Format for timestamps in log files. */
 #define KNOT_LOG_TIME_FORMAT "%Y-%m-%dT%H:%M:%S"
@@ -174,30 +152,28 @@ int log_msg_zone(int priority, const knot_dname_t *zone, const char *fmt, ...)
 int log_msg_zone_str(int priority, const char *zone, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 
-void hex_log(const char *data, int length);
-
 /* Convenient logging. */
 
-#define log_fatal(msg...)   log_msg(LOG_CRIT,    msg)
-#define log_error(msg...)   log_msg(LOG_ERR,     msg)
-#define log_warning(msg...) log_msg(LOG_WARNING, msg)
-#define log_notice(msg...)  log_msg(LOG_NOTICE,  msg)
-#define log_info(msg...)    log_msg(LOG_INFO,    msg)
-#define log_debug(msg...)   log_msg(LOG_DEBUG,   msg)
+#define log_fatal(msg, ...)   log_msg(LOG_CRIT,    msg, ##__VA_ARGS__)
+#define log_error(msg, ...)   log_msg(LOG_ERR,     msg, ##__VA_ARGS__)
+#define log_warning(msg, ...) log_msg(LOG_WARNING, msg, ##__VA_ARGS__)
+#define log_notice(msg, ...)  log_msg(LOG_NOTICE,  msg, ##__VA_ARGS__)
+#define log_info(msg, ...)    log_msg(LOG_INFO,    msg, ##__VA_ARGS__)
+#define log_debug(msg, ...)   log_msg(LOG_DEBUG,   msg, ##__VA_ARGS__)
 
-#define log_zone_fatal(zone, msg...)   log_msg_zone(LOG_CRIT,    zone, msg)
-#define log_zone_error(zone, msg...)   log_msg_zone(LOG_ERR,     zone, msg)
-#define log_zone_warning(zone, msg...) log_msg_zone(LOG_WARNING, zone, msg)
-#define log_zone_notice(zone, msg...)  log_msg_zone(LOG_NOTICE,  zone, msg)
-#define log_zone_info(zone, msg...)    log_msg_zone(LOG_INFO,    zone, msg)
-#define log_zone_debug(zone, msg...)   log_msg_zone(LOG_DEBUG,   zone, msg)
+#define log_zone_fatal(zone, msg, ...)   log_msg_zone(LOG_CRIT,    zone, msg, ##__VA_ARGS__)
+#define log_zone_error(zone, msg, ...)   log_msg_zone(LOG_ERR,     zone, msg, ##__VA_ARGS__)
+#define log_zone_warning(zone, msg, ...) log_msg_zone(LOG_WARNING, zone, msg, ##__VA_ARGS__)
+#define log_zone_notice(zone, msg, ...)  log_msg_zone(LOG_NOTICE,  zone, msg, ##__VA_ARGS__)
+#define log_zone_info(zone, msg, ...)    log_msg_zone(LOG_INFO,    zone, msg, ##__VA_ARGS__)
+#define log_zone_debug(zone, msg, ...)   log_msg_zone(LOG_DEBUG,   zone, msg, ##__VA_ARGS__)
 
-#define log_zone_str_fatal(zone, msg...)   log_msg_zone_str(LOG_CRIT,    zone, msg)
-#define log_zone_str_error(zone, msg...)   log_msg_zone_str(LOG_ERR,     zone, msg)
-#define log_zone_str_warning(zone, msg...) log_msg_zone_str(LOG_WARNING, zone, msg)
-#define log_zone_str_notice(zone, msg...)  log_msg_zone_str(LOG_NOTICE,  zone, msg)
-#define log_zone_str_info(zone, msg...)    log_msg_zone_str(LOG_INFO,    zone, msg)
-#define log_zone_str_debug(zone, msg...)   log_msg_zone_str(LOG_DEBUG,   zone, msg)
+#define log_zone_str_fatal(zone, msg, ...)   log_msg_zone_str(LOG_CRIT,    zone, msg, ##__VA_ARGS__)
+#define log_zone_str_error(zone, msg, ...)   log_msg_zone_str(LOG_ERR,     zone, msg, ##__VA_ARGS__)
+#define log_zone_str_warning(zone, msg, ...) log_msg_zone_str(LOG_WARNING, zone, msg, ##__VA_ARGS__)
+#define log_zone_str_notice(zone, msg, ...)  log_msg_zone_str(LOG_NOTICE,  zone, msg, ##__VA_ARGS__)
+#define log_zone_str_info(zone, msg, ...)    log_msg_zone_str(LOG_INFO,    zone, msg, ##__VA_ARGS__)
+#define log_zone_str_debug(zone, msg, ...)   log_msg_zone_str(LOG_DEBUG,   zone, msg, ##__VA_ARGS__)
 
 /*!
  * \brief Update open files ownership.
@@ -217,9 +193,6 @@ int log_update_privileges(int uid, int gid);
  * \retval KNOT_EINVAL on invalid parameters.
  * \retval KNOT_ENOMEM out of memory error.
  */
-int log_reconfigure(const list_t *logs, void *data);
-
-/*! \brief Free log config. */
-void log_free(conf_log_t *log);
+int log_reconfigure(conf_t *conf, void *data);
 
 /*! @} */

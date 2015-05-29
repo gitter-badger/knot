@@ -14,34 +14,37 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 #if HAVE_LMDB
 #include <lmdb.h>
 #endif
 
 #include "libknot/errcode.h"
-#include "libknot/internal/errors.h"
 #include "libknot/internal/macros.h"
 #include "dnssec/error.h"
 
-static const error_table_t error_messages[] = {
+struct error {
+	int code;
+	const char *message;
+};
+
+static const struct error errors[] = {
 	{ KNOT_EOK, "OK" },
 
 	/* Directly mapped error codes. */
-	{ KNOT_ENOMEM,       "not enough memory" },
-	{ KNOT_EINVAL,       "invalid parameter" },
-	{ KNOT_ENOTSUP,      "operation not supported" },
-	{ KNOT_EBUSY,        "requested resource is busy" },
-	{ KNOT_EAGAIN,       "OS lacked necessary resources" },
-	{ KNOT_EACCES,       "operation not permitted" },
-	{ KNOT_ECONNREFUSED, "connection refused" },
-	{ KNOT_EISCONN,      "already connected" },
-	{ KNOT_EADDRINUSE,   "address already in use" },
-	{ KNOT_ENOENT,       "not exists" },
-	{ KNOT_EEXIST,       "already exists" },
-	{ KNOT_ERANGE,       "value is out of range" },
+	{ KNOT_ENOMEM,        "not enough memory" },
+	{ KNOT_EINVAL,        "invalid parameter" },
+	{ KNOT_ENOTSUP,       "operation not supported" },
+	{ KNOT_EBUSY,         "requested resource is busy" },
+	{ KNOT_EAGAIN,        "OS lacked necessary resources" },
+	{ KNOT_EACCES,        "operation not permitted" },
+	{ KNOT_ECONNREFUSED,  "connection refused" },
+	{ KNOT_EISCONN,       "already connected" },
+	{ KNOT_EADDRINUSE,    "address already in use" },
+	{ KNOT_ENOENT,        "not exists" },
+	{ KNOT_EEXIST,        "already exists" },
+	{ KNOT_ERANGE,        "value is out of range" },
+	{ KNOT_EADDRNOTAVAIL, "address is not available" },
 
 	/* General errors. */
 	{ KNOT_ERROR,        "failed" },
@@ -62,7 +65,7 @@ static const error_table_t error_messages[] = {
 	{ KNOT_ENOZONE,      "no such zone found" },
 	{ KNOT_ENONODE,      "no such node in zone found" },
 	{ KNOT_EDNAMEPTR,    "domain name pointer larger than allowed" },
-	{ KNOT_EPAYLOAD,     "payload in OPT RR larger than max wire size" },
+	{ KNOT_EPAYLOAD,     "invalid EDNS payload size" },
 	{ KNOT_EPREREQ,      "UPDATE prerequisity not met" },
 	{ KNOT_ETTL,         "TTL mismatch" },
 	{ KNOT_ENOXFR,       "transfer was not sent" },
@@ -79,6 +82,8 @@ static const error_table_t error_messages[] = {
 	{ KNOT_ELIMIT,       "exceeded response rate limit" },
 	{ KNOT_EWRITABLE,    "file is not writable" },
 	{ KNOT_EOF,          "end of file" },
+	{ KNOT_ESYSTEM,      "system error" },
+	{ KNOT_EFILE,        "file error" },
 
 	/* Control states. */
 	{ KNOT_CTL_STOP,     "stopping server" },
@@ -113,14 +118,60 @@ static const error_table_t error_messages[] = {
 	{ KNOT_DNSSEC_ENOKEY,          "no keys for signing" },
 	{ KNOT_DNSSEC_EMISSINGKEYTYPE, "missing active KSK or ZSK" },
 
+	/* Yparser errors. */
+	{ KNOT_YP_EINVAL_ITEM,   "invalid item" },
+	{ KNOT_YP_EINVAL_DATA,   "invalid value" },
+	{ KNOT_YP_EINVAL_INDENT, "invalid indentation" },
+	{ KNOT_YP_ENOTSUP_DATA,  "value not supported" },
+	{ KNOT_YP_ENOTSUP_ID,    "identifier not supported" },
+	{ KNOT_YP_ENODATA,       "missing value" },
+	{ KNOT_YP_ENOID,         "missing identifier" },
+
+	/* Configuration errors. */
+	{ KNOT_CONF_EMPTY,     "empty configuration database" },
+	{ KNOT_CONF_EVERSION,  "invalid configuration database version" },
+	{ KNOT_CONF_EREDEFINE, "identifier already specified" },
+
+	/* Processing errors. */
+	{ KNOT_LAYER_ERROR, "processing layer error" },
+
 	{ KNOT_ERROR, NULL } /* Terminator */
 };
+
+/*!
+ * \brief Lookup error message by error code.
+ */
+static const char *lookup_message(int code)
+{
+	for (const struct error *e = errors; e->message; e++) {
+		if (e->code == code) {
+			return e->message;
+		}
+	}
+
+	return NULL;
+}
+
+/*!
+ * \brief Get a fallback error message for unknown error code.
+ */
+static const char *fallback_message(int code)
+{
+	static __thread char buffer[128];
+	if (snprintf(buffer, sizeof(buffer), "unknown error %d", code) < 0) {
+		buffer[0] = '\0';
+	}
+	return buffer;
+}
 
 _public_
 const char *knot_strerror(int code)
 {
-	if (code == 0 || (KNOT_ERROR_MIN <= code && code <= KNOT_ERROR_MAX)) {
-		return error_to_str(error_messages, code);
+	if (KNOT_ERROR_MIN <= code && code <= 0) {
+		const char *msg = lookup_message(code);
+		if (msg) {
+			return msg;
+		}
 	}
 
 	if (DNSSEC_ERROR_MIN <= code && code <= DNSSEC_ERROR_MAX) {
@@ -133,30 +184,5 @@ const char *knot_strerror(int code)
 	}
 #endif
 
-	static __thread char buffer[128];
-	snprintf(buffer, sizeof(buffer), "unknown error %d", code);
-	return buffer;
-}
-
-_public_
-int knot_map_errno_internal(int fallback, int arg0, ...)
-{
-	/* Iterate all variable-length arguments. */
-	va_list ap;
-	va_start(ap, arg0);
-
-	/* KNOT_ERROR serves as a sentinel. */
-	for (int c = arg0; c != 0; c = va_arg(ap, int)) {
-
-		/* Error code matches with mapped. */
-		if (c == errno) {
-			/* Return negative value of the code. */
-			va_end(ap);
-			return -abs(c);
-		}
-	}
-	va_end(ap);
-
-	/* Fallback error code. */
-	return KNOT_ERROR;
+	return fallback_message(code);
 }

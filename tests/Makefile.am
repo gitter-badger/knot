@@ -2,14 +2,13 @@ AM_CPPFLAGS = \
 	-include $(top_builddir)/src/config.h \
 	-I$(top_srcdir)/libtap \
 	-I$(top_srcdir)/src \
-	-I$(top_srcdir)/dnssec/lib
-
-AM_LDFLAGS = \
-	$(libcrypto_LIBS)
+	-I$(top_srcdir)/src/dnssec/lib
 
 LDADD = \
-	$(top_builddir)/libtap/libtap.a \
-	$(top_builddir)/src/libknotd.la
+	$(top_builddir)/libtap/libtap.la \
+	$(top_builddir)/src/libknot.la \
+	$(top_builddir)/src/libknotd.la \
+	$(libcrypto_LIBS)
 
 check_PROGRAMS = \
 	acl				\
@@ -17,8 +16,6 @@ check_PROGRAMS = \
 	base32hex			\
 	base64				\
 	changeset			\
-	changeset			\
-	conf				\
 	descriptor			\
 	dname				\
 	dthreads			\
@@ -29,6 +26,7 @@ check_PROGRAMS = \
 	hhash				\
 	journal				\
 	namedb				\
+	net_shortwrite			\
 	node				\
 	overlay				\
 	pkt				\
@@ -46,6 +44,9 @@ check_PROGRAMS = \
 	wire				\
 	worker_pool			\
 	worker_queue			\
+	yparser				\
+	ypscheme			\
+	yptrafo				\
 	zone_events			\
 	zone_serial			\
 	zone_timers			\
@@ -60,13 +61,7 @@ check-local: $(check_PROGRAMS)
 					-L $(top_builddir)/tests/runtests.log \
 					$(check_PROGRAMS)
 
-EXTRA_DIST = data
-dist_check_SCRIPTS = resource.sh
-
-conf_SOURCES = conf.c sample_conf.h
-process_query_SOURCES = process_query.c fake_server.h
-process_answer_SOURCES = process_answer.c fake_server.h
-nodist_conf_SOURCES = sample_conf.c
-CLEANFILES = sample_conf.c runtests.log
-sample_conf.c: data/sample_conf
-	$(abs_srcdir)/resource.sh $(abs_srcdir)/data/sample_conf >$@
+acl_SOURCES = acl.c test_conf.h
+process_query_SOURCES = process_query.c fake_server.h test_conf.h
+process_answer_SOURCES = process_answer.c fake_server.h test_conf.h
+CLEANFILES = runtests.log

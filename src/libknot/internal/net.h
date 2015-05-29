@@ -31,7 +31,12 @@
 /* POSIX only. */
 #include "libknot/internal/sockaddr.h"
 
-/*******              #274, legacy API to be replaced below            ********/
+/*!
+ * \brief Network interface flags.
+ */
+enum net_flags {
+	NET_BIND_NONLOCAL = (1 << 0)
+};
 
 /*!
  * \brief Create unbound socket of given family and type.
@@ -46,12 +51,14 @@ int net_unbound_socket(int type, const struct sockaddr_storage *ss);
 /*!
  * \brief Create socket bound to given address.
  *
- * \param type  Socket transport type (SOCK_STREAM, SOCK_DGRAM).
- * \param ss    Socket address storage.
+ * \param type   Socket transport type (SOCK_STREAM, SOCK_DGRAM).
+ * \param ss     Socket address storage.
+ * \param flags  Allow binding to non-local address with NET_BIND_NONLOCAL.
  *
  * \return socket or error code
  */
-int net_bound_socket(int type, const struct sockaddr_storage *ss);
+int net_bound_socket(int type, const struct sockaddr_storage *ss,
+                     enum net_flags flags);
 
 /*!
  * \brief Create socket connected (asynchronously) to destination address.
@@ -78,32 +85,31 @@ int net_connected_socket(int type, const struct sockaddr_storage *dst_addr,
 int net_is_connected(int fd);
 
 /*!
- * \brief Send a UDP message.
+ * \brief Send a UDP message over connected socket.
  *
  * \param fd Associated socket.
  * \param msg Buffer for a query wireformat.
  * \param msglen Buffer maximum size.
- * \param addr Destination address.
+ * \param addr Destination address (or NULL if connected).
  *
  * \retval Number of sent data on success.
  * \retval KNOT_ERROR on error.
  */
-int udp_send_msg(int fd, const uint8_t *msg, size_t msglen,
-                 const struct sockaddr *addr);
+int udp_send_msg(int fd, const uint8_t *msg, size_t msglen, const struct sockaddr *addr);
 
 /*!
- * \brief Receive a UDP message.
+ * \brief Receive a UDP message from connected socket.
  *
  * \param fd Associated socket.
  * \param buf Buffer for incoming bytestream.
  * \param len Buffer maximum size.
- * \param addr Source address.
+ * \param timeout Message receive timeout.
  *
  * \retval Number of read bytes on success.
  * \retval KNOT_ERROR on error.
  * \retval KNOT_ENOMEM on potential buffer overflow.
  */
-int udp_recv_msg(int fd, uint8_t *buf, size_t len, struct sockaddr *addr);
+int udp_recv_msg(int fd, uint8_t *buf, size_t len, struct timeval *timeout);
 
 /*!
  * \brief Send a TCP message.
@@ -111,11 +117,12 @@ int udp_recv_msg(int fd, uint8_t *buf, size_t len, struct sockaddr *addr);
  * \param fd Associated socket.
  * \param msg Buffer for a query wireformat.
  * \param msglen Buffer maximum size.
+ * \param timeout Message send timeout.
  *
  * \retval Number of sent data on success.
  * \retval KNOT_ERROR on error.
  */
-int tcp_send_msg(int fd, const uint8_t *msg, size_t msglen);
+int tcp_send_msg(int fd, const uint8_t *msg, size_t msglen, struct timeval *timeout);
 
 /*!
  * \brief Receive a TCP message.
