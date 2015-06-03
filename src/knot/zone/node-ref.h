@@ -32,6 +32,7 @@ typedef struct node_ref {
 	uint8_t flags;
 } node_ref_t;
 
+#warning is this function defined anywhere?
 void fix_additional_refs(knot_rrset_t *rr, zone_read_t *zone_reader);
 bool node_ref_valid(node_ref_t *ref);
 struct zone_node *node_ref_get(const struct zone_node *n, enum node_ref_type type, zone_read_t *zone_reader);
