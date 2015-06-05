@@ -290,8 +290,8 @@ int event_reload(zone_t *zone)
 		zone_events_schedule(zone, ZONE_EVENT_REFRESH, ZONE_EVENT_NOW);
 	}
 	if (!zone_contents_is_empty(contents)) {
+		zone->bootstrap_retry = 0;
 		zone_events_schedule(zone, ZONE_EVENT_NOTIFY, ZONE_EVENT_NOW);
-		zone->bootstrap_retry = ZONE_EVENT_NOW;
 	}
 
 	/* Schedule zone resign. */
@@ -446,6 +446,7 @@ int event_expire(zone_t *zone)
 	/* Expire zonefile information. */
 	zone->zonefile_mtime = 0;
 	zone->zonefile_serial = 0;
+	zone->bootstrap_retry = 0;
 	zone_contents_deep_free(&expired);
 
 	log_zone_info(zone->name, "zone expired");
@@ -591,4 +592,3 @@ uint32_t bootstrap_next(uint32_t timer)
 	}
 	return timer;
 }
-
