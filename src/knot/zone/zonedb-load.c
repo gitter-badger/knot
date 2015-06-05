@@ -36,7 +36,7 @@
  */
 typedef enum {
 	ZONE_STATUS_NOT_FOUND = 0,  //!< Zone file does not exist.
-	ZONE_STATUS_BOOSTRAP,       //!< Zone file does not exist, can boostrap.
+	ZONE_STATUS_BOOTSTRAP,      //!< Zone file does not exist, can bootstrap.
 	ZONE_STATUS_FOUND_NEW,      //!< Zone file exists, not loaded yet.
 	ZONE_STATUS_FOUND_CURRENT,  //!< Zone file exists, same as loaded.
 	ZONE_STATUS_FOUND_UPDATED,  //!< Zone file exists, newer than loaded.
@@ -67,7 +67,7 @@ static zone_status_t zone_file_status(const zone_t *old_zone, conf_t *conf,
 			return ZONE_STATUS_FOUND_CURRENT;
 		} else {
 			return zone_load_can_bootstrap(conf, name) ?
-			       ZONE_STATUS_BOOSTRAP : ZONE_STATUS_NOT_FOUND;
+			       ZONE_STATUS_BOOTSTRAP : ZONE_STATUS_NOT_FOUND;
 		}
 	} else {
 		// Zone file exists.
@@ -97,7 +97,7 @@ static void log_zone_load_info(const zone_t *zone, zone_status_t status)
 
 	switch (status) {
 	case ZONE_STATUS_NOT_FOUND:     action = "not found";            break;
-	case ZONE_STATUS_BOOSTRAP:      action = "will be bootstrapped"; break;
+	case ZONE_STATUS_BOOTSTRAP:     action = "will be bootstrapped"; break;
 	case ZONE_STATUS_FOUND_NEW:     action = "will be loaded";       break;
 	case ZONE_STATUS_FOUND_CURRENT: action = "is up-to-date";        break;
 	case ZONE_STATUS_FOUND_UPDATED: action = "will be reloaded";     break;
@@ -129,6 +129,32 @@ static zone_t *create_zone_from(const knot_dname_t *name, server_t *server)
 	}
 
 	return zone;
+}
+
+/*!
+ * \brief Move DDNS requests from one zone to another.
+ */
+static void move_ddns_queue(zone_t *dst, zone_t *src)
+{
+	struct knot_request *d, *nxt;
+	WALK_LIST_DELSAFE(d, nxt, src->ddns_queue) {
+		add_tail(&dst->ddns_queue, (node_t *)d);
+	}
+	init_list(&src->ddns_queue);
+
+	dst->ddns_queue_size = src->ddns_queue_size;
+	src->ddns_queue_size = 0;
+}
+
+/*!
+ * \brief Check if zone is expired based on the timer information.
+ */
+static bool zone_is_expired_by_timers(const zone_events_times_t timers)
+{
+	time_t now = time(NULL);
+	time_t expire = timers[ZONE_EVENT_EXPIRE];
+
+	return expire != 0 && expire <= now;
 }
 
 static zone_t *create_zone_reload(conf_t *conf, const knot_dname_t *name,
@@ -164,33 +190,6 @@ static zone_t *create_zone_reload(conf_t *conf, const knot_dname_t *name,
 	return zone;
 }
 
-static bool slave_event(zone_event_type_t event)
-{
-	return event == ZONE_EVENT_EXPIRE || event == ZONE_EVENT_REFRESH;
-}
-
-static void reuse_events(zone_t *zone, const time_t *timers)
-{
-	for (zone_event_type_t event = 0; event < ZONE_EVENT_COUNT; ++event) {
-		if (timers[event] == 0) {
-			// Timer unset.
-			continue;
-		}
-		if (slave_event(event) && !zone_is_slave(zone)) {
-			// Slave-only event.
-			continue;
-		}
-
-		zone_events_schedule_at(zone, event, timers[event]);
-	}
-}
-
-static bool zone_expired(const time_t *timers)
-{
-	const time_t now = time(NULL);
-	return now <= timers[ZONE_EVENT_EXPIRE];
-}
-
 static zone_t *create_zone_new(conf_t * conf, const knot_dname_t *name,
                                server_t *server)
 {
@@ -199,11 +198,9 @@ static zone_t *create_zone_new(conf_t * conf, const knot_dname_t *name,
 		return NULL;
 	}
 
-	time_t timers[ZONE_EVENT_COUNT];
-	memset(timers, 0, sizeof(timers));
-
-	// Get persistent timers
-	int ret = read_zone_timers(server->timers_db, zone, timers);
+	/* Recover persistent timers. */
+	zone_events_times_t timers = { 0 };
+	int ret = read_zone_timers(server->timers_db, zone->name, timers);
 	if (ret != KNOT_EOK) {
 		log_zone_error(zone->name, "cannot read zone timers (%s)",
 		               knot_strerror(ret));
@@ -211,20 +208,19 @@ static zone_t *create_zone_new(conf_t * conf, const knot_dname_t *name,
 		return NULL;
 	}
 
-	reuse_events(zone, timers);
+	/* Update scheduled events. */
+	zone_events_replan(zone, timers);
 
 	const zone_status_t zstatus = zone_file_status(NULL, conf, name);
-
 	switch (zstatus) {
 	case ZONE_STATUS_FOUND_NEW:
-		if (!zone_expired(timers)) {
+		if (!zone_is_expired_by_timers(zone->events.time)) {
 			/* Enqueueing makes the first zone load waitable. */
 			zone_events_enqueue(zone, ZONE_EVENT_RELOAD);
 		}
 		break;
-	case ZONE_STATUS_BOOSTRAP:
-		if (timers[ZONE_EVENT_REFRESH] == 0) {
-			// Plan immediate refresh if not already planned.
+	case ZONE_STATUS_BOOTSTRAP:
+		if (zone_events_get_time(zone, ZONE_EVENT_REFRESH) == 0) {
 			zone_events_schedule(zone, ZONE_EVENT_REFRESH, ZONE_EVENT_NOW);
 		}
 		break;
