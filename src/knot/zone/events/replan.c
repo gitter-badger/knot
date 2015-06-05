@@ -14,129 +14,112 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "libknot/rrtype/soa.h"
-
 #include "knot/zone/events/replan.h"
-#include "knot/zone/events/handlers.h"
 #include "knot/zone/zone.h"
 #include "libknot/internal/macros.h"
+#include "libknot/rrtype/soa.h"
 
-/* -- Zone event replanning functions --------------------------------------- */
-
-/*!< \brief Replans event for new zone according to old zone. */
-static void replan_event(zone_t *zone, const zone_t *old_zone, zone_event_type_t e)
+time_t replan_reload(const zone_t *zone, time_t timer)
 {
-	const time_t event_time = zone_events_get_time(old_zone, e);
-	if (event_time > ZONE_EVENT_NOW) {
-		zone_events_schedule_at(zone, e, event_time);
-	}
+	return 0;
 }
 
-/*!< \brief Replans events that are dependent on the SOA record. */
-static void replan_soa_events(zone_t *zone, const zone_t *old_zone)
+time_t replan_expire(const zone_t *zone, time_t timer)
 {
+	// master zone
+
 	if (!zone_is_slave(zone)) {
-		// Events only valid for slaves.
-		return;
+		return 0;
 	}
 
-	if (zone_is_slave(old_zone)) {
-		// Replan SOA events.
-		replan_event(zone, old_zone, ZONE_EVENT_REFRESH);
-		replan_event(zone, old_zone, ZONE_EVENT_EXPIRE);
-	} else {
-		// Plan SOA events anew.
-		if (!zone_contents_is_empty(zone->contents)) {
-			const knot_rdataset_t *soa = node_rdataset(zone->contents->apex,
-			                                           KNOT_RRTYPE_SOA);
-			assert(soa);
-			zone_events_schedule(zone, ZONE_EVENT_REFRESH, knot_soa_refresh(soa));
-		}
-	}
+	// slave zone
+
+	return timer;
 }
 
-/*!< \brief Replans transfer event. */
-static void replan_xfer(zone_t *zone, const zone_t *old_zone)
+time_t replan_refresh(const zone_t *zone, time_t timer)
 {
+	// master zone
+
 	if (!zone_is_slave(zone)) {
-		// Only valid for slaves.
-		return;
+		return 0;
 	}
 
-	if (zone_is_slave(old_zone)) {
-		// Replan the transfer from old zone.
-		replan_event(zone, old_zone, ZONE_EVENT_XFER);
-	} else if (zone_contents_is_empty(zone->contents)) {
-		// Plan transfer anew.
-		zone->bootstrap_retry = bootstrap_next(zone->bootstrap_retry);
-		zone_events_schedule(zone, ZONE_EVENT_XFER, zone->bootstrap_retry);
+	// slave zone
+
+	if (timer > 0) {
+		return timer;
 	}
+
+	if (!zone_contents_is_empty(zone->contents)) {
+		const knot_rdataset_t *soa = node_rdataset(zone->contents->apex,
+		                                           KNOT_RRTYPE_SOA);
+		assert(soa);
+		return time(NULL) + knot_soa_refresh(soa);
+	}
+
+	return 0;
 }
 
-/*!< \brief Replans flush event. */
-static void replan_flush(zone_t *zone, const zone_t *old_zone)
+time_t replan_xfer(const zone_t *zone, time_t timer)
+{
+	// master zone
+
+	if (!zone_is_slave(zone)) {
+		return 0;
+	}
+
+	// slave zone
+
+	if (timer > 0) {
+		return timer;
+	}
+
+	if (zone_contents_is_empty(zone->contents)) {
+		return time(NULL) + zone->bootstrap_retry;
+	}
+
+	return 0;
+}
+
+time_t replan_flush(const zone_t *zone, time_t timer)
 {
 	conf_val_t val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
-	int64_t dbsync_timeout = conf_int(&val);
-	if (dbsync_timeout <= 0) {
-		// Immediate sync scheduled after events.
-		return;
+	int64_t config_sync = conf_int(&val);
+
+	// immediate syncing enabled
+
+	if (config_sync <= 0 && timer == 0) {
+		return 0;
 	}
 
-	const time_t flush_time = zone_events_get_time(old_zone, ZONE_EVENT_FLUSH);
-	if (flush_time <= ZONE_EVENT_NOW) {
-		// Not scheduled previously.
-		zone_events_schedule(zone, ZONE_EVENT_FLUSH, dbsync_timeout);
-		return;
-	}
+	// pick the sooner: old timer or new sync counted from now
 
-	// Pick time to schedule: either reuse or schedule sooner than old event.
-	const time_t schedule_at = MIN(time(NULL) + dbsync_timeout, flush_time);
-	zone_events_schedule_at(zone, ZONE_EVENT_FLUSH, schedule_at);
+	return MIN(timer, time(NULL) + config_sync);
 }
 
-/*!< \brief Creates new DDNS q in the new zone - q contains references from the old zone. */
-static void duplicate_ddns_q(zone_t *zone, zone_t *old_zone)
+time_t replan_dnssec(const zone_t *zone, time_t timer)
 {
-	struct knot_request *d, *nxt;
-	WALK_LIST_DELSAFE(d, nxt, old_zone->ddns_queue) {
-		add_tail(&zone->ddns_queue, (node_t *)d);
-	}
-	zone->ddns_queue_size = old_zone->ddns_queue_size;
+	// automatically signed zone
 
-	// Reset the list, new zone will free the data.
-	init_list(&old_zone->ddns_queue);
-}
-
-/*!< Replans DNSSEC event. Not whole resign needed, \todo #247 */
-static void replan_dnssec(zone_t *zone)
-{
 	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_SIGNING, zone->name);
-	if (conf_bool(&val)) {
-		/* Keys could have changed, force resign. */
-		zone_events_schedule(zone, ZONE_EVENT_DNSSEC, ZONE_EVENT_NOW);
+	if (conf_bool(&val) && !zone_is_slave(zone)) {
+		// keys could have changed,
+		//! \todo issue #247
+		timer = time(NULL);
 	}
+
+	// signing disabled
+
+	return 0;
 }
 
-/*!< Replans DDNS event. */
-void replan_update(zone_t *zone, zone_t *old_zone)
+time_t replan_notify(const zone_t *zone, time_t timer)
 {
-	const bool have_updates = old_zone->ddns_queue_size > 0;
-	if (have_updates) {
-		duplicate_ddns_q(zone, old_zone);
-	}
-
-	if (have_updates) {
-		zone_events_schedule(zone, ZONE_EVENT_UPDATE, ZONE_EVENT_NOW);
-	}
+	return timer;
 }
 
-void replan_events(zone_t *zone, zone_t *old_zone)
+time_t replan_update(const zone_t *zone, time_t timer)
 {
-	replan_soa_events(zone, old_zone);
-	replan_xfer(zone, old_zone);
-	replan_flush(zone, old_zone);
-	replan_event(zone, old_zone, ZONE_EVENT_NOTIFY);
-	replan_update(zone, old_zone);
-	replan_dnssec(zone);
+	return timer;
 }

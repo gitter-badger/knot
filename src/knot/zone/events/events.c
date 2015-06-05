@@ -36,22 +36,24 @@
 /* -- internal API ---------------------------------------------------------- */
 
 typedef int (*handler_cb)(zone_t *zone);
+typedef time_t (*replan_cb)(const zone_t *zone, time_t timer);
 
 typedef struct event_info {
 	zone_event_type_t type;
 	const handler_cb handler;
+	const replan_cb replan;
 	const char *name;
 } event_info_t;
 
 static const event_info_t EVENT_INFO[] = {
-        { ZONE_EVENT_RELOAD,  event_reload,  "reload" },
-        { ZONE_EVENT_REFRESH, event_refresh, "refresh" },
-        { ZONE_EVENT_XFER,    event_xfer,    "transfer" },
-        { ZONE_EVENT_UPDATE,  event_update,  "update" },
-        { ZONE_EVENT_EXPIRE,  event_expire,  "expiration" },
-        { ZONE_EVENT_FLUSH,   event_flush,   "journal flush" },
-        { ZONE_EVENT_NOTIFY,  event_notify,  "notify" },
-        { ZONE_EVENT_DNSSEC,  event_dnssec,  "DNSSEC resign" },
+        { ZONE_EVENT_RELOAD,  event_reload,  replan_reload,  "reload" },
+        { ZONE_EVENT_REFRESH, event_refresh, replan_refresh, "refresh" },
+        { ZONE_EVENT_XFER,    event_xfer,    replan_xfer,    "transfer" },
+        { ZONE_EVENT_UPDATE,  event_update,  replan_update,  "update" },
+        { ZONE_EVENT_EXPIRE,  event_expire,  replan_expire,  "expiration" },
+        { ZONE_EVENT_FLUSH,   event_flush,   replan_flush,   "journal flush" },
+        { ZONE_EVENT_NOTIFY,  event_notify,  replan_notify,  "notify" },
+        { ZONE_EVENT_DNSSEC,  event_dnssec,  replan_dnssec,  "DNSSEC resign" },
         { 0 }
 };
 
@@ -412,16 +414,22 @@ time_t zone_events_get_next(const struct zone *zone, zone_event_type_t *type)
 	return next_time;
 }
 
-void zone_events_update(zone_t *zone, zone_t *old_zone)
+void zone_events_replan(zone_t *zone, const zone_events_times_t source)
 {
-	replan_events(zone, old_zone);
-}
-
-void zone_events_replan_ddns(struct zone *zone, const struct zone *old_zone)
-{
-	if (old_zone) {
-		replan_update(zone, (zone_t *)old_zone);
+	if (!zone || !source) {
+		return;
 	}
+
+	zone_events_t *events = &zone->events;
+
+	pthread_mutex_lock(&events->mx);
+
+	for (const event_info_t *i = EVENT_INFO; i->replan != NULL; i++) {
+		events->time[i->type] = i->replan(zone, source[i->type]);
+	}
+	reschedule(events);
+
+	pthread_mutex_unlock(&events->mx);
 }
 
 int zone_events_write_persistent(zone_t *zone)

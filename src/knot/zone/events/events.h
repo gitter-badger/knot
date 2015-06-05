@@ -45,6 +45,8 @@ typedef enum zone_event_type {
 	ZONE_EVENT_COUNT,
 } zone_event_type_t;
 
+typedef time_t zone_events_times_t[ZONE_EVENT_COUNT];
+
 typedef struct zone_events {
 	pthread_mutex_t mx;		//!< Mutex protecting the struct.
 	bool running;			//!< Some zone event is being run.
@@ -55,7 +57,7 @@ typedef struct zone_events {
 	namedb_t *timers_db;		//!< Persistent zone timers database.
 
 	task_t task;			//!< Event execution context.
-	time_t time[ZONE_EVENT_COUNT];	//!< Event execution times.
+	zone_events_times_t time;	//!< Event execution times.
 } zone_events_t;
 
 /*!
@@ -188,20 +190,12 @@ const char *zone_events_get_name(zone_event_type_t type);
 time_t zone_events_get_next(const struct zone *zone, zone_event_type_t *type);
 
 /*!
- * \brief Replans zone events after config change. Will reuse events where applicable.
+ * \brief Replan zone events after config change.
  *
- * \param zone      Zone with new config.
- * \param old_zone  Zone with old config.
+ * \param zone   New zone to be updated.
+ * \param times  Old zone timers.
  */
-void zone_events_update(struct zone *zone, struct zone *old_zone);
-
-/*!
- * \brief Replans DDNS processing event if DDNS queue is not empty.
- *
- * \param zone      Zone with new config.
- * \param old_zone  Zone with old config.
- */
-void zone_events_replan_ddns(struct zone *zone, const struct zone *old_zone);
+void zone_events_replan(struct zone *zone, const zone_events_times_t times);
 
 /*!
  * \brief Write persistent timers to timers database.
