@@ -442,6 +442,22 @@ int zone_events_write_persistent(zone_t *zone)
 		return KNOT_EOK;
 	}
 
-	return write_zone_timers(zone->events.timers_db, zone->name,
-	                         zone->events.time);
+	//! \todo issue #376
+
+	/*
+	 * WORKAROUND (a.k.a. improper fix). The current timer database
+	 * contains timestamps for running timers. If the zone expiration
+	 * timer expires while the server is down, the zone is not loaded.
+	 * However, rewriting updated the timers for expired zone will clear
+	 * the timer in the database. The next time the server is started,
+	 * the zone will be loaded again.
+	 */
+
+	zone_events_times_t to_write = { 0 };
+	memcpy(to_write, zone->events.time, sizeof(to_write));
+	if (zone->flags & ZONE_EXPIRED) {
+		to_write[ZONE_EVENT_EXPIRE] = 1;
+	}
+
+	return write_zone_timers(zone->events.timers_db, zone->name, to_write);
 }

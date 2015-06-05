@@ -278,6 +278,7 @@ int event_reload(zone_t *zone)
 
 	/* Everything went alright, switch the contents. */
 	zone->zonefile_mtime = mtime;
+	zone->flags &= ~ZONE_EXPIRED;
 	zone_contents_t *old = zone_switch_contents(zone, contents);
 	uint32_t old_serial = zone_contents_serial(old);
 	if (old != NULL) {
@@ -386,6 +387,7 @@ int event_xfer(zone_t *zone)
 
 	assert(!zone_contents_is_empty(zone->contents));
 	const knot_rdataset_t *soa = zone_soa(zone);
+	zone->flags &= ~ZONE_EXPIRED;
 
 	/* Rechedule events. */
 	zone_events_schedule(zone, ZONE_EVENT_REFRESH, knot_soa_refresh(soa));
@@ -444,6 +446,7 @@ int event_expire(zone_t *zone)
 	synchronize_rcu();
 
 	/* Expire zonefile information. */
+	zone->flags |= ZONE_EXPIRED;
 	zone->zonefile_mtime = 0;
 	zone->zonefile_serial = 0;
 	zone->bootstrap_retry = 0;
