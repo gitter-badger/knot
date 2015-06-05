@@ -46,13 +46,8 @@ int main(int argc, char *argv[])
 	const char *dbid = mkdtemp(dbid_buf);
 
 	// Mockup zones.
-	knot_dname_t *zone_name;
-	zone_name = knot_dname_from_str_alloc("test1.");
-	zone_t *zone_1 = zone_new(zone_name);
-	knot_dname_free(&zone_name, NULL);
-	zone_name = knot_dname_from_str_alloc("test2.");
-	zone_t *zone_2 = zone_new(zone_name);
-	knot_dname_free(&zone_name, NULL);
+	zone_t *zone_1 = zone_new((uint8_t *)"\x5""test1");
+	zone_t *zone_2 = zone_new((uint8_t *)"\x5""test2");
 	assert(zone_1 && zone_2);
 
 	// Mockup zonedb.
@@ -79,12 +74,12 @@ int main(int argc, char *argv[])
 	zone_events_schedule_at(zone_1, ZONE_EVENT_FLUSH, FLUSH_TIME);
 
 	// Write the timers.
-	ret = write_zone_timers(db, zone_1);
+	ret = write_zone_timers(db, zone_1->name, zone_1->events.time);
 	ok(ret == KNOT_EOK, "zone timers: write");
 
 	// Read the timers.
-	time_t timers[ZONE_EVENT_COUNT];
-	ret = read_zone_timers(db, zone_1, timers);
+	zone_events_times_t timers = { 0 };
+	ret = read_zone_timers(db, zone_1->name, timers);
 	ok(ret == KNOT_EOK &&
 	   timers[ZONE_EVENT_REFRESH] == REFRESH_TIME &&
 	   timers[ZONE_EVENT_EXPIRE] == EXPIRE_TIME &&
@@ -93,7 +88,8 @@ int main(int argc, char *argv[])
 	// Sweep and read again - timers should stay the same.
 	int s_ret = sweep_timer_db(db, zone_db);
 	if (s_ret == KNOT_EOK) {
-		ret = read_zone_timers(db, zone_1, timers);
+		memset(timers, 0, sizeof(timers));
+		ret = read_zone_timers(db, zone_1->name, timers);
 	}
 	ok(s_ret == KNOT_EOK && ret == KNOT_EOK &&
 	   timers[ZONE_EVENT_REFRESH] == REFRESH_TIME &&
@@ -101,8 +97,9 @@ int main(int argc, char *argv[])
 	   timers[ZONE_EVENT_FLUSH] == FLUSH_TIME, "zone timers: sweep no-op");
 
 	// Read timers for unset zone.
-	const time_t empty_timers[ZONE_EVENT_COUNT] = { '\0' };
-	ret = read_zone_timers(db, zone_2, timers);
+	const zone_events_times_t empty_timers= { 0 };
+	memset(timers, 0, sizeof(timers));
+	ret = read_zone_timers(db, zone_2->name, timers);
 	ok(ret == KNOT_EOK &&
 	   memcmp(timers, empty_timers, sizeof(timers)) == 0, "zone timers: read unset");
 
@@ -112,7 +109,8 @@ int main(int argc, char *argv[])
 
 	s_ret = sweep_timer_db(db, zone_db);
 	if (s_ret == KNOT_EOK) {
-		ret = read_zone_timers(db, zone_1, timers);
+		memset(timers, 0, sizeof(timers));
+		ret = read_zone_timers(db, zone_1->name, timers);
 	}
 	ok(s_ret == KNOT_EOK && ret == KNOT_EOK &&
 	   memcmp(timers, empty_timers, sizeof(timers)) == 0, "zone timers: sweep");

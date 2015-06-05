@@ -16,9 +16,9 @@
 
 #pragma once
 
-#include "libknot/internal/namedb/namedb.h"
-#include "knot/zone/zone.h"
+#include "knot/zone/events/events.h"
 #include "knot/zone/zonedb.h"
+#include "libknot/internal/namedb/namedb.h"
 
 /*!
  * \brief Opens zone timers db. No-op without LMDB support.
@@ -44,23 +44,26 @@ void close_timers_db(namedb_t *timer_db);
  *          ZONE_EVENT_EXPIRE
  *          ZONE_EVENT_FLUSH
  *
- * \param timer_db  Timer database.
- * \param zone      Zone to read timers for.
- * \param timers    Output array with timers (size must be ZONE_EVENT_COUNT).
+ * \param[in]  timer_db  Timer database.
+ * \param[in]  zone      Zone to read timers for.
+ * \param[out] timers    Array with loaded timers.
  *
  * \return KNOT_E*
  */
-int read_zone_timers(namedb_t *timer_db, const zone_t *zone, time_t *timers);
+int read_zone_timers(namedb_t *timer_db, const knot_dname_t *zone,
+                     zone_events_times_t timers);
 
 /*!
  * \brief Writes zone timers to timers db.
  *
  * \param timer_db  Timer database.
  * \param zone      Zone to store timers for.
+ * \param timers    Zone timers to store.
  *
  * \return KNOT_E*
  */
-int write_zone_timers(namedb_t *timer_db, zone_t *zone);
+int write_zone_timers(namedb_t *timer_db, const knot_dname_t *zone,
+                      const zone_events_times_t timers);
 
 /*!
  * \brief Removes stale zones info from timers db.

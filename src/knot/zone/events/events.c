@@ -442,5 +442,6 @@ int zone_events_write_persistent(zone_t *zone)
 		return KNOT_EOK;
 	}
 
-	return write_zone_timers(zone->events.timers_db, zone);
+	return write_zone_timers(zone->events.timers_db, zone->name,
+	                         zone->events.time);
 }
