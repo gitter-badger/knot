@@ -157,6 +157,15 @@ static bool zone_is_expired_by_timers(const zone_events_times_t timers)
 	return expire != 0 && expire <= now;
 }
 
+/*!
+ * \brief Check if zone is expired based on the zone content information.
+ */
+static bool zone_is_expired_by_content(const zone_t *zone)
+{
+	return (zone_contents_is_empty(zone->contents) && zone->zonefile_mtime > 0) ||
+	       zone_is_expired_by_timers(zone->events.time);
+}
+
 static zone_t *create_zone_reload(conf_t *conf, const knot_dname_t *name,
                                   server_t *server, zone_t *old_zone)
 {
@@ -164,28 +173,33 @@ static zone_t *create_zone_reload(conf_t *conf, const knot_dname_t *name,
 	if (!zone) {
 		return NULL;
 	}
+
+	/* Retain permanent content. */
 	zone->contents = old_zone->contents;
+	zone->zonefile_mtime = old_zone->zonefile_mtime;
+	zone->zonefile_serial = old_zone->zonefile_serial;
+	zone->bootstrap_retry = old_zone->bootstrap_retry;
+	move_ddns_queue(zone, old_zone);
 
-	const zone_status_t zstatus = zone_file_status(old_zone, conf, name);
+	/* Update scheduled events. */
+	zone_events_replan(zone, old_zone->events.time);
 
-	switch (zstatus) {
-	case ZONE_STATUS_FOUND_UPDATED:
-		/* Enqueueing makes the first zone load waitable. */
-		zone_events_enqueue(zone, ZONE_EVENT_RELOAD);
-		/* Replan DDNS processing if there are pending updates. */
-		zone_events_replan_ddns(zone, old_zone);
-		break;
-	case ZONE_STATUS_FOUND_CURRENT:
-		zone->zonefile_mtime = old_zone->zonefile_mtime;
-		zone->zonefile_serial = old_zone->zonefile_serial;
-		/* Reuse events from old zone. */
-		zone_events_update(zone, old_zone);
-		/* Write updated timers. */
-		zone_events_write_persistent(zone);
-		break;
-	default:
-		assert(0);
+	/* Issue zone file reload. */
+	if (!zone_is_expired_by_content(zone)) {
+		zone_status_t zstatus = zone_file_status(old_zone, conf, name);
+		switch (zstatus) {
+		case ZONE_STATUS_FOUND_UPDATED:
+			zone_events_enqueue(zone, ZONE_EVENT_RELOAD);
+			break;
+		case ZONE_STATUS_FOUND_CURRENT:
+			break;
+		default:
+			assert(0);
+		}
 	}
+
+	#warning Rewrites expired timer in persistent DB.
+	zone_events_write_persistent(zone);
 
 	return zone;
 }
@@ -231,6 +245,8 @@ static zone_t *create_zone_new(conf_t * conf, const knot_dname_t *name,
 	}
 
 	log_zone_load_info(zone, zstatus);
+	#warning Rewrites expired timer in persistent DB.
+	zone_events_write_persistent(zone);
 
 	return zone;
 }
