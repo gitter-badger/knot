@@ -35,11 +35,11 @@
 
 /* -- internal API ---------------------------------------------------------- */
 
-typedef int (*zone_event_cb)(zone_t *zone);
+typedef int (*handler_cb)(zone_t *zone);
 
 typedef struct event_info {
 	zone_event_type_t type;
-	const zone_event_cb callback;
+	const handler_cb handler;
 	const char *name;
 } event_info_t;
 
@@ -58,7 +58,7 @@ static const event_info_t EVENT_INFO[] = {
 static const event_info_t *get_event_info(zone_event_type_t type)
 {
 	const event_info_t *info;
-	for (info = EVENT_INFO; info->callback != NULL; info++) {
+	for (info = EVENT_INFO; info->handler != NULL; info++) {
 		if (info->type == type) {
 			return info;
 		}
@@ -186,7 +186,7 @@ static void event_wrap(task_t *task)
 	pthread_mutex_unlock(&events->mx);
 
 	const event_info_t *info = get_event_info(type);
-	int result = info->callback(zone);
+	int result = info->handler(zone);
 	if (result != KNOT_EOK) {
 		log_zone_error(zone->name, "zone %s failed (%s)", info->name,
 		               knot_strerror(result));
