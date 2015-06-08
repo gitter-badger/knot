@@ -48,7 +48,7 @@ static knot_rrset_t *create_dummy_rrsig(const knot_dname_t *owner,
 
 int main(int argc, char *argv[])
 {
-	plan(23);
+	plan_lazy();
 
 	knot_dname_t *dummy_owner = knot_dname_from_str_alloc("test.");
 	// Test new
