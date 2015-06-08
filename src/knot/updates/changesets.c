@@ -369,6 +369,7 @@ int changeset_iter_rem(changeset_iter_t *itt, const changeset_t *ch, bool sorted
 
 int changeset_iter_all(changeset_iter_t *itt, const changeset_t *ch, bool sorted)
 {
+#warning the API is selected only once for 4 DBs
 	return changeset_iter_init(itt, ch->add->nodes->api, sorted, 4,
 	                           ch->add->nodes, ch->add->nsec3_nodes,
 	                           ch->remove->nodes, ch->remove->nsec3_nodes);

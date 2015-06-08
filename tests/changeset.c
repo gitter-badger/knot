@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
 	ok(ch != NULL, "changeset: new");
 	ok(changeset_empty(ch), "changeset: empty");
 	ch->soa_to = (knot_rrset_t *)0xdeadbeef;
-	ok(!changeset_empty(ch), "changseset: empty SOA");
+	ok(!changeset_empty(ch), "changeset: empty SOA");
 	ch->soa_to = NULL;
 	ok(changeset_size(ch) == 0, "changeset: empty size");
 
@@ -51,12 +51,15 @@ int main(int argc, char *argv[])
 
 	int ret = changeset_add_rrset(ch, apex_txt_rr);
 	ok(ret == KNOT_EOK, "changeset: add RRSet");
-	ok(changeset_size(ch) == 1, "changeset: size add");
+	ok(changeset_size(ch) == 1, "changeset: size after add");
 	ret = changeset_rem_rrset(ch, apex_txt_rr);
 	ok(ret == KNOT_EOK, "changeset: rem RRSet");
-	ok(changeset_size(ch) == 2, "changeset: size remove");
+	ok(changeset_size(ch) == 0, "changeset: size after remove");
+	ret = changeset_rem_rrset(ch, apex_txt_rr);
+	ok(ret == KNOT_EOK, "changeset: rem RRSet");
+	ok(changeset_size(ch) == 1, "changeset: size after remove");
 
-	ok(!changeset_empty(ch), "changeset: not empty");
+	ok(!changeset_empty(ch), "changeset: empty");
 
 	// Add another RR to node.
 	knot_rrset_t *apex_spf_rr = knot_rrset_new(d, KNOT_RRTYPE_SPF, KNOT_CLASS_IN, NULL);
@@ -81,11 +84,13 @@ int main(int argc, char *argv[])
 	ok(ret == KNOT_EOK, "changeset: create iter add");
 	// Order: non.terminals.test. TXT, SPF, here.come.more.non.terminals.test. TXT.
 	knot_rrset_t iter = changeset_iter_next(&it);
-	bool trav_ok = knot_rrset_equal(&iter, apex_txt_rr, KNOT_RRSET_COMPARE_WHOLE);
-	iter = changeset_iter_next(&it);
-	trav_ok = trav_ok && knot_rrset_equal(&iter, apex_spf_rr, KNOT_RRSET_COMPARE_WHOLE);
+	bool trav_ok = knot_rrset_equal(&iter, apex_spf_rr, KNOT_RRSET_COMPARE_WHOLE);
+	ok(trav_ok, "changeset: add traversal1");
 	iter = changeset_iter_next(&it);
 	trav_ok = trav_ok && knot_rrset_equal(&iter, other_rr, KNOT_RRSET_COMPARE_WHOLE);
+	ok(trav_ok, "changeset: add traversal2");
+	iter = changeset_iter_next(&it);
+	trav_ok = trav_ok && knot_rrset_empty(&iter);
 
 	ok(trav_ok, "changeset: add traversal");
 
@@ -111,7 +116,7 @@ int main(int argc, char *argv[])
 		iter = changeset_iter_next(&it);
 	}
 	changeset_iter_clear(&it);
-	ok(size == 4, "changeset: iter all");
+	ok(size == 3, "changeset: iter all");
 
 	// Create new changeset.
 	knot_dname_free(&d, NULL);
