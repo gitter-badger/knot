@@ -993,7 +993,7 @@ int zone_update_load_contents(zone_update_t *up)
 
 	zloader_t zl;
 	
-	char *zonefile = conf_zonefile(conf, up->zone->name);
+	char *zonefile = conf_zonefile(conf(), up->zone->name);
 	int ret = zonefile_open(&zl, zonefile, up->zone->name);
 	if (ret != KNOT_EOK) {
 		return ret;

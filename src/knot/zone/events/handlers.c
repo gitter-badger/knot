@@ -233,7 +233,7 @@ static void start_expire_timer(zone_t *zone, const knot_rdataset_t *soa)
 }
 
 /*! \brief Check zone configuration constraints. */
-static bool zone_set_payload(zone_t *zone)
+static int zone_set_payload(zone_t *zone)
 {
 	/* Bootstrapped zone, no checks apply. */
 	if (zone->contents == NULL) {
@@ -242,7 +242,7 @@ static bool zone_set_payload(zone_t *zone)
 
 	/* Check minimum EDNS0 payload if signed. (RFC4035/sec. 3) */
 	if (zone_contents_is_signed(zone->contents)) {
-		conf_val_t val = conf_get(conf, C_SRV, C_MAX_UDP_PAYLOAD);
+		conf_val_t val = conf_get(conf(), C_SRV, C_MAX_UDP_PAYLOAD);
 		if (conf_int(&val) < KNOT_EDNS_MIN_DNSSEC_PAYLOAD) {
 			log_zone_warning(zone->name, "EDNS payload size is "
 			                 "lower than %u bytes for DNSSEC zone",
@@ -252,6 +252,8 @@ static bool zone_set_payload(zone_t *zone)
 			return KNOT_EPAYLOAD;
 		}
 	}
+
+	return KNOT_EOK;
 }
 
 /* -- zone events handling callbacks --------------------------------------- */
