@@ -267,7 +267,7 @@ int zonefile_load(zloader_t *loader)
 		return ret;
 	}
 	char *path = conf_journalfile(conf(), zone->name);
-	ret = journal_load_changesets(path, zone, &ch, serial, serial - 1);
+	ret = journal_load_changesets(path, &ch, serial, serial - 1);
 	if ((ret != KNOT_EOK && ret != KNOT_ERANGE) || changeset_empty(&ch)) {
 		changeset_clear(&ch);
 		/* Absence of records is not an error. */

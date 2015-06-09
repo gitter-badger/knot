@@ -369,10 +369,20 @@ int changeset_iter_rem(changeset_iter_t *itt, const changeset_t *ch, bool sorted
 
 int changeset_iter_all(changeset_iter_t *itt, const changeset_t *ch, bool sorted)
 {
-#warning the API is selected only once for 4 DBs
-	return changeset_iter_init(itt, ch->add->nodes->api, sorted, 4,
+#warning the API is selected only once for 4 DBs - was, I had to fix this. Anyway, find a better solution.
+	if (!ch->add || !ch->add->nodes) {
+		if (!ch->remove || !ch->remove->nodes) {
+			return KNOT_EOK;
+		} else {
+			return changeset_iter_init(itt, ch->remove->nodes->api, sorted, 4,
 	                           ch->add->nodes, ch->add->nsec3_nodes,
 	                           ch->remove->nodes, ch->remove->nsec3_nodes);
+		}
+	} else {
+		return changeset_iter_init(itt, ch->add->nodes->api, sorted, 4,
+	                           ch->add->nodes, ch->add->nsec3_nodes,
+	                           ch->remove->nodes, ch->remove->nsec3_nodes);
+	}
 }
 
 knot_rrset_t changeset_iter_next(changeset_iter_t *it)

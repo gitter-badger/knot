@@ -178,7 +178,7 @@ bool journal_exists(const char *path);
  * \retval KNOT_ERANGE if given entry was not found.
  * \return < KNOT_EOK on error.
  */
-int journal_load_changesets(const char *path, const struct zone *zone, changeset_t *ch,
+int journal_load_changesets(const char *path, changeset_t *ch,
                             uint32_t from, uint32_t to);
 
 /*!

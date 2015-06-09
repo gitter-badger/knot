@@ -953,9 +953,9 @@ static int changeset_pack(const changeset_t *chs, journal_t *j)
 }
 
 /*! \brief Helper for iterating journal (this is temporary until #80) */
-typedef int (*journal_apply_t)(journal_t *, journal_node_t *, const zone_t *, changeset_t *);
+typedef int (*journal_apply_t)(journal_t *, journal_node_t *, changeset_t *);
 static int journal_walk(const char *fn, uint32_t from, uint32_t to,
-                        journal_apply_t cb, const zone_t *zone, changeset_t *ch)
+                        journal_apply_t cb, changeset_t *ch)
 {
 	/* Open journal for reading. */
 	journal_t *journal = journal_open(fn, FSLIMIT_INF);
@@ -988,7 +988,7 @@ static int journal_walk(const char *fn, uint32_t from, uint32_t to,
 		}
 
 		/* Callback. */
-		ret = cb(journal, n, zone, ch);
+		ret = cb(journal, n, ch);
 		if (ret != KNOT_EOK) {
 			break;
 		}
@@ -1000,7 +1000,7 @@ finish:
 	return ret;
 }
 
-static int load_changeset(journal_t *journal, journal_node_t *n, const zone_t *zone, changeset_t *ch)
+static int load_changeset(journal_t *journal, journal_node_t *n, changeset_t *ch)
 {
 	/* Initialize changeset data. */
 	uint8_t *changeset_data = malloc(n->len);
@@ -1019,10 +1019,10 @@ static int load_changeset(journal_t *journal, journal_node_t *n, const zone_t *z
 	return ret;
 }
 
-int journal_load_changesets(const char *path, const struct zone *zone, changeset_t *ch,
+int journal_load_changesets(const char *path, changeset_t *ch,
                             uint32_t from, uint32_t to)
 {
-	int ret = journal_walk(path, from, to, &load_changeset, zone, ch);
+	int ret = journal_walk(path, from, to, &load_changeset, ch);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
