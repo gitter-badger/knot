@@ -353,6 +353,22 @@ static int remove_old_zonedb(const knot_zonedb_t *db_new, knot_zonedb_t *db_old)
 	return KNOT_EOK;
 }
 
+/*!
+ * \brief Callback to filter stale zones from zone database.
+ */
+static int zonedb_sweep(const knot_dname_t *zone, bool *keep, void *_zonedb)
+{
+	assert(zone);
+	assert(keep);
+	assert(_zonedb);
+
+	knot_zonedb_t *zonedb = _zonedb;
+
+	*keep = knot_zonedb_find(zonedb, zone) != NULL;
+
+	return KNOT_EOK;
+}
+
 /*- public API functions ----------------------------------------------------*/
 
 /*!
@@ -383,7 +399,7 @@ int zonedb_reload(conf_t *conf, struct server *server)
 	synchronize_rcu();
 
 	/* Sweep the timer database. */
-	sweep_timer_db(server->timers_db, db_new);
+	timerdb_sweep(server->timer_db, zonedb_sweep, db_new);
 
 	/*
 	 * Remove all zones present in the new DB from the old DB.
