@@ -121,8 +121,7 @@ static zone_t *create_zone_from(const knot_dname_t *name, server_t *server)
 		return NULL;
 	}
 
-	int result = zone_events_setup(zone, server->workers, &server->sched,
-	                               server->timers_db);
+	int result = zone_events_setup(zone, server->workers, &server->sched, server->timer_db);
 	if (result != KNOT_EOK) {
 		zone_free(&zone);
 		return NULL;
@@ -157,6 +156,29 @@ static bool zone_is_expired(const zone_events_times_t timers)
 	return expire != 0 && expire <= now;
 }
 
+//static int sync_from_persistent(timerdb_t *db, zone_t *zone)
+//{
+//	timerdb_entry_t persistent = { 0 };
+//
+//	int ret = timerdb_read(db, zone->name, &persistent);
+//	if (ret == KNOT_ENOENT) {
+//		return ret;
+//	}
+//
+//	if (!zone_is_slave(zone)) {
+//		persistent.expire = 0;
+//		persistent.next_refresh = 0;
+//	}
+//
+//	return result;
+//}
+
+static int dynamic_to_persistent(timerdb_entry_t *entry, zone_events_times_t events)
+{
+	events[ZONE_EVENT_EXPIRE] = entry->expire;
+
+}
+
 static zone_t *create_zone_reload(conf_t *conf, const knot_dname_t *name,
                                   server_t *server, zone_t *old_zone)
 {
@@ -173,29 +195,60 @@ static zone_t *create_zone_reload(conf_t *conf, const knot_dname_t *name,
 	zone->flags = old_zone->flags;
 	move_ddns_queue(zone, old_zone);
 
+	zone_status_t zstatus = zone_file_status(old_zone, conf, name);
+
 	/* Update scheduled events. */
-	zone_events_replan(zone, old_zone->events.time);
+//	timerdb_entry_t timers = get_persistent_timers(server->timers_db, zone);
+//	zone_events_replan(zone, old_zone->events.time);
 
 	/* Issue zone file reload. */
-	if ((zone->flags & ZONE_EXPIRED) == 0) {
-		zone_status_t zstatus = zone_file_status(old_zone, conf, name);
-		switch (zstatus) {
-		case ZONE_STATUS_FOUND_UPDATED:
-			zone_events_enqueue(zone, ZONE_EVENT_RELOAD);
-			break;
-		case ZONE_STATUS_FOUND_CURRENT:
-			break;
-		default:
-			assert(0);
-		}
-	}
-
-	zone_events_write_persistent(zone);
+//	bool expired = timers.expire > 0 && timers.expire <= time(NULL);
+//	if (!expired) {
+//		switch (zstatus) {
+//		case ZONE_STATUS_FOUND_UPDATED:
+//			zone_events_enqueue(zone, ZONE_EVENT_RELOAD);
+//			break;
+//		case ZONE_STATUS_FOUND_CURRENT:
+//			break;
+//		default:
+//			assert(0);
+//		}
+//	}
+//
+//#warning disabled (write persistent)
+//	timerdb_write(server->timers_db, zone->name, &timers);
 
 	return zone;
 }
 
-static zone_t *create_zone_new(conf_t * conf, const knot_dname_t *name,
+static int recover_timers(timerdb_t *timerdb, const knot_dname_t *zone,
+                          const conf_t *conf, zone_events_times_t timers)
+{
+	timerdb_entry_t entry = { 0 };
+
+	int ret = timerdb_read(timerdb, zone, &entry);
+	if (ret == KNOT_ENOENT) {
+		// no persistent timers exist
+		return KNOT_EOK;
+	}
+
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	// fixed events
+
+	timers[ZONE_EVENT_REFRESH] = entry.next_refresh;
+	timers[ZONE_EVENT_EXPIRE]  = entry.expire;
+
+	// computed events
+
+#warning TODO: what to do with flush?
+
+	return KNOT_EOK;
+}
+
+static zone_t *create_zone_new(conf_t *conf, const knot_dname_t *name,
                                server_t *server)
 {
 	zone_t *zone = create_zone_from(name, server);
@@ -205,13 +258,13 @@ static zone_t *create_zone_new(conf_t * conf, const knot_dname_t *name,
 
 	/* Recover persistent timers. */
 	zone_events_times_t timers = { 0 };
-	int ret = read_zone_timers(server->timers_db, zone->name, timers);
-	if (ret != KNOT_EOK) {
-		log_zone_error(zone->name, "cannot read zone timers (%s)",
-		               knot_strerror(ret));
-		zone_free(&zone);
-		return NULL;
-	}
+//	int ret = recover_timers(server->timers_db, zone->name, conf, timers);
+//	if (ret != KNOT_EOK) {
+//		log_zone_error(zone->name, "cannot recover zone timers (%s)",
+//		               knot_strerror(ret));
+//		zone_free(&zone);
+//		return NULL;
+//	}
 
 	/* Update scheduled events. */
 	zone_events_replan(zone, timers);
@@ -240,7 +293,8 @@ static zone_t *create_zone_new(conf_t * conf, const knot_dname_t *name,
 	}
 
 	log_zone_load_info(zone, zstatus);
-	zone_events_write_persistent(zone);
+#warning disabled (write persistent)
+//	zone_events_write_persistent(zone);
 
 	return zone;
 }

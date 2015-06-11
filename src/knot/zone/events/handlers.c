@@ -278,7 +278,7 @@ int event_reload(zone_t *zone)
 
 	/* Everything went alright, switch the contents. */
 	zone->zonefile_mtime = mtime;
-	zone->flags &= ~ZONE_EXPIRED;
+// EXPIRED removed
 	zone_contents_t *old = zone_switch_contents(zone, contents);
 	uint32_t old_serial = zone_contents_serial(old);
 	if (old != NULL) {
@@ -309,7 +309,10 @@ int event_reload(zone_t *zone)
 	log_zone_info(zone->name, "loaded, serial %u -> %u",
 	              old_serial, current_serial);
 
-	return zone_events_write_persistent(zone);
+#warning disabled
+//	return zone_events_write_persistent(zone);
+	return KNOT_EOK;
+
 
 fail:
 	zone_contents_deep_free(&contents);
@@ -326,9 +329,9 @@ int event_refresh(zone_t *zone)
 	}
 
 	if (zone_contents_is_empty(zone->contents)) {
-		/* No contents, schedule retransfer now. */
-		zone_events_schedule(zone, ZONE_EVENT_XFER, ZONE_EVENT_NOW);
-		return KNOT_EOK;
+		/* No contents, fallback to immediate retransfer. */
+		zone_events_cancel(zone, ZONE_EVENT_XFER);
+		return event_xfer(zone);
 	}
 
 	const conf_remote_t master = zone_master(zone);
@@ -348,7 +351,9 @@ int event_refresh(zone_t *zone)
 		zone_events_schedule(zone, ZONE_EVENT_REFRESH, knot_soa_refresh(soa));
 	}
 
-	return zone_events_write_persistent(zone);
+#warning disabled
+//	return zone_events_write_persistent(zone);
+	return KNOT_EOK;
 }
 
 int event_xfer(zone_t *zone)
@@ -375,30 +380,33 @@ int event_xfer(zone_t *zone)
 	if (ret != KNOT_EOK) {
 		if (is_boostrap) {
 			zone->bootstrap_retry = bootstrap_next(zone->bootstrap_retry);
-			zone_events_schedule(zone, ZONE_EVENT_XFER, zone->bootstrap_retry);
+			zone_events_schedule(zone, ZONE_EVENT_REFRESH, zone->bootstrap_retry);
 		} else {
 			const knot_rdataset_t *soa = zone_soa(zone);
-			zone_events_schedule(zone, ZONE_EVENT_XFER, knot_soa_retry(soa));
+			zone_events_schedule(zone, ZONE_EVENT_REFRESH, knot_soa_retry(soa));
+			// TODO: tohle je blbost, to musi bezet porad
 			start_expire_timer(zone, soa);
 		}
 
+		// TODO: persistentni timery
 		return KNOT_EOK;
 	}
 
 	assert(!zone_contents_is_empty(zone->contents));
 	const knot_rdataset_t *soa = zone_soa(zone);
-	zone->flags &= ~ZONE_EXPIRED;
+// REMOVE EXPIRED
+//	zone->flags &= ~ZONE_EXPIRED;
 
 	/* Rechedule events. */
 	zone_events_schedule(zone, ZONE_EVENT_REFRESH, knot_soa_refresh(soa));
 	zone_events_schedule(zone, ZONE_EVENT_NOTIFY,  ZONE_EVENT_NOW);
 	zone_events_cancel(zone, ZONE_EVENT_EXPIRE);
+	zone_events_schedule(zone, ZONE_EVENT_EXPIRE, knot_soa_expire(soa));
+
 	conf_val_t val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
 	int64_t dbsync_timeout = conf_int(&val);
 	if (dbsync_timeout == 0) {
 		zone_events_schedule(zone, ZONE_EVENT_FLUSH, ZONE_EVENT_NOW);
-	} else if (!zone_events_is_scheduled(zone, ZONE_EVENT_FLUSH)) {
-		zone_events_schedule(zone, ZONE_EVENT_FLUSH, dbsync_timeout);
 	}
 
 	/* Transfer cleanup. */
@@ -446,7 +454,6 @@ int event_expire(zone_t *zone)
 	synchronize_rcu();
 
 	/* Expire zonefile information. */
-	zone->flags |= ZONE_EXPIRED;
 	zone->zonefile_mtime = 0;
 	zone->zonefile_serial = 0;
 	zone->bootstrap_retry = 0;
@@ -463,6 +470,8 @@ int event_expire(zone_t *zone)
 int event_flush(zone_t *zone)
 {
 	assert(zone);
+
+	// TODO: store last flush
 
 	/* Reschedule. */
 	conf_val_t val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);

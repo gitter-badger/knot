@@ -17,13 +17,16 @@
 #pragma once
 
 #include "knot/zone/events/events.h"
+#include "knot/zone/timers.h"
 #include "knot/zone/zone.h"
 
-time_t replan_reload(const zone_t *zone, time_t timer);
-time_t replan_refresh(const zone_t *zone, time_t timer);
-time_t replan_xfer(const zone_t *zone, time_t timer);
-time_t replan_update(const zone_t *zone, time_t timer);
-time_t replan_expire(const zone_t *zone, time_t timer);
-time_t replan_flush(const zone_t *zone, time_t timer);
-time_t replan_notify(const zone_t *zone, time_t timer);
-time_t replan_dnssec(const zone_t *zone, time_t timer);
+/*!
+ * \brief Replan zone events
+ *
+ * \param[in]  zone
+ * \param[in]  timerdb
+ * \param[out] timers
+ */
+void events_replan(const zone_t *zone,
+                   timerdb_t *timerdb,
+                   zone_events_times_t timers);

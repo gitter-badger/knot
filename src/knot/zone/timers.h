@@ -76,6 +76,11 @@ int timerdb_write(timerdb_t *db, const knot_dname_t *zone,
                   const timerdb_entry_t *timers);
 
 /*!
+ * \brief
+ */
+bool timerdb_is_persistent(timerdb_t *db);
+
+/*!
  * \brief Callback function for \ref timerdb_sweep.
  *
  * \param[in]  name  Zone name.

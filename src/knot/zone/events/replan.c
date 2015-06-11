@@ -19,107 +19,77 @@
 #include "libknot/internal/macros.h"
 #include "libknot/rrtype/soa.h"
 
-time_t replan_reload(const zone_t *zone, time_t timer)
-{
-	return 0;
-}
-
-time_t replan_expire(const zone_t *zone, time_t timer)
-{
-	// master zone
-
-	if (!zone_is_slave(zone)) {
-		return 0;
-	}
-
-	// slave zone
-
-	return timer;
-}
-
-time_t replan_refresh(const zone_t *zone, time_t timer)
-{
-	// master zone
-
-	if (!zone_is_slave(zone)) {
-		return 0;
-	}
-
-	// slave zone
-
-	if (timer > 0) {
-		return timer;
-	}
-
-	if (!zone_contents_is_empty(zone->contents)) {
-		const knot_rdataset_t *soa = node_rdataset(zone->contents->apex,
-		                                           KNOT_RRTYPE_SOA);
-		assert(soa);
-		return time(NULL) + knot_soa_refresh(soa);
-	}
-
-	return 0;
-}
-
-time_t replan_xfer(const zone_t *zone, time_t timer)
-{
-	// master zone
-
-	if (!zone_is_slave(zone)) {
-		return 0;
-	}
-
-	// slave zone
-
-	if (timer > 0) {
-		return timer;
-	}
-
-	if (zone_contents_is_empty(zone->contents)) {
-		return time(NULL) + zone->bootstrap_retry;
-	}
-
-	return 0;
-}
-
-time_t replan_flush(const zone_t *zone, time_t timer)
+/*!
+ * \brief Recalculate since the last flush.
+ */
+static void replan_flush(const zone_t *zone, const timerdb_entry_t *persistent,
+                         time_t *timer)
 {
 	conf_val_t val = conf_zone_get(conf(), C_ZONEFILE_SYNC, zone->name);
 	int64_t config_sync = conf_int(&val);
 
-	// immediate syncing enabled
+	// immediate flush enabled
 
-	if (config_sync <= 0 && timer == 0) {
-		return 0;
+	if (config_sync <= 0) {
+		// force immediate flush if the timer was running
+		*timer = *timer > 0 ? ZONE_EVENT_NOW : 0;
+		return;
 	}
 
-	// pick the sooner: old timer or new sync counted from now
+	// regular flushing
 
-	return MIN(timer, time(NULL) + config_sync);
+	*timer = persistent->last_flush + config_sync;
 }
 
-time_t replan_dnssec(const zone_t *zone, time_t timer)
+/*!
+ * \brief DNSSEC should be run immeditaly in case the keys changed.
+ */
+static void replan_dnssec(const zone_t *zone, time_t *timer)
 {
-	// automatically signed zone
+	// signing is part of the initial zone load
+
+	if (zone_contents_is_empty(zone->contents)) {
+		*timer = 0;
+		return;
+	}
+
+	// automatically signed zone, keys could have changed
+	//! \todo issue #247
 
 	conf_val_t val = conf_zone_get(conf(), C_DNSSEC_SIGNING, zone->name);
 	if (conf_bool(&val) && !zone_is_slave(zone)) {
-		// keys could have changed,
-		//! \todo issue #247
-		timer = time(NULL);
+		*timer = time(NULL);
+		return;
 	}
 
 	// signing disabled
 
-	return 0;
+	*timer = 0;
+	return;
 }
 
-time_t replan_notify(const zone_t *zone, time_t timer)
+void replan(const zone_t *zone, const timerdb_entry_t *persistent,
+            zone_events_times_t timers)
 {
-	return timer;
-}
+	/* Cancel */
 
-time_t replan_update(const zone_t *zone, time_t timer)
-{
-	return timer;
+	timers[ZONE_EVENT_RELOAD] = 0;
+
+	/* Cancel unless the zone is slave */
+
+	if (!zone_is_slave(zone)) {
+		timers[ZONE_EVENT_REFRESH] = 0;
+		timers[ZONE_EVENT_XFER] = 0;
+		timers[ZONE_EVENT_EXPIRE] = 0;
+	}
+
+	/* Always keep */
+
+	// ZONE_EVENT_UPDATE
+	// ZONE_EVENT_NOTIFY
+
+	/* Recompute new value */
+
+	replan_flush(zone, persistent, &timers[ZONE_EVENT_FLUSH]);
+	replan_dnssec(zone, &timers[ZONE_EVENT_DNSSEC]);
 }

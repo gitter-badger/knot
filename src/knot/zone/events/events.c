@@ -438,7 +438,7 @@ int zone_events_write_persistent(zone_t *zone)
 		return KNOT_EINVAL;
 	}
 
-	if (zone->events.timers_db == NULL) {
+	if (zone->events.timer_db == NULL) {
 		return KNOT_EOK;
 	}
 
@@ -459,5 +459,5 @@ int zone_events_write_persistent(zone_t *zone)
 		to_write[ZONE_EVENT_EXPIRE] = 1;
 	}
 
-	return write_zone_timers(zone->events.timers_db, zone->name, to_write);
+	return write_zone_timers(zone->events.timer_db, zone->name, to_write);
 }
