@@ -23,6 +23,9 @@
 struct timerdb;
 typedef struct timerdb timerdb_t;
 
+/*!
+ * \brief Entry in the timer database for one zone.
+ */
 struct timerdb_entry {
 	uint64_t last_flush;
 	uint64_t next_refresh;

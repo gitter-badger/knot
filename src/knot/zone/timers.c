@@ -173,7 +173,10 @@ static void deserialize_value(enum key key, uint64_t value, timerdb_entry_t *ent
 		entry->last_flush = value;
 		break;
 	case KEY_OBSOLETE_FUTURE_FLUSH:
-		// pretend we never flushed before
+		if (value > 0) {
+			// pretend we flushed very long time before
+			entry->last_flush = 1;
+		}
 		break;
 	default:
 		// ignore unknown keys
