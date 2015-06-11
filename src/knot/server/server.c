@@ -24,6 +24,7 @@
 #include <assert.h>
 
 #include "libknot/errcode.h"
+#include "libknot/internal/mem.h"
 #include "knot/common/debug.h"
 #include "knot/common/trim.h"
 #include "knot/server/server.h"
@@ -382,7 +383,7 @@ void server_deinit(server_t *server)
 	evsched_deinit(&server->sched);
 
 	/* Close persistent timers database. */
-	close_timers_db(server->timers_db);
+	timerdb_close(server->timer_db);
 
 	/* Clear the structure. */
 	memset(server, 0, sizeof(server_t));
@@ -660,19 +661,26 @@ int server_reconfigure(conf_t *conf, void *data)
 	return ret;
 }
 
-static void reopen_timers_database(conf_t *conf, server_t *server)
+static int reopen_timers_database(conf_t *conf, server_t *server)
 {
-	close_timers_db(server->timers_db);
-	server->timers_db = NULL;
+	timerdb_close(server->timer_db);
+	server->timer_db = NULL;
 
 	conf_val_t val = conf_default_get(conf, C_STORAGE);
 	char *storage = conf_abs_path(&val, NULL);
-	int ret = open_timers_db(storage, &server->timers_db);
-	free(storage);
-	if (ret != KNOT_EOK && ret != KNOT_ENOTSUP) {
-		log_warning("cannot open persistent timers DB (%s)",
-		            knot_strerror(ret));
+	if (!storage) {
+		return KNOT_ENOMEM;
 	}
+
+	char *path = sprintf_alloc("%s/timers", storage);
+	free(storage);
+	if (!path) {
+		return KNOT_ENOMEM;
+	}
+
+	int ret = timerdb_open(&server->timer_db, path);
+	free(path);
+	return ret;
 }
 
 int server_update_zones(conf_t *conf, void *data)
@@ -690,8 +698,12 @@ int server_update_zones(conf_t *conf, void *data)
 	worker_pool_wait(server->workers);
 
 	/* Reload zone database and free old zones. */
-	reopen_timers_database(conf, server);
-	int ret = zonedb_reload(conf, server);
+	int ret = reopen_timers_database(conf, server);
+	if (ret != KNOT_EOK) {
+		log_warning("cannot open persistent timers DB (%s)",
+		            knot_strerror(ret));
+	}
+	ret = zonedb_reload(conf, server);
 
 	/* Trim extra heap. */
 	mem_trim();

@@ -37,6 +37,7 @@
 #include "knot/server/dthreads.h"
 #include "knot/server/rrl.h"
 #include "knot/worker/pool.h"
+#include "knot/zone/timers.h"
 #include "knot/zone/zonedb.h"
 
 /* Forwad declarations. */
@@ -96,7 +97,7 @@ typedef struct server {
 
 	/*! \brief Zone database. */
 	knot_zonedb_t *zone_db;
-	namedb_t *timers_db;
+	timerdb_t *timer_db;
 
 	/*! \brief I/O handlers. */
 	unsigned tu_size;
