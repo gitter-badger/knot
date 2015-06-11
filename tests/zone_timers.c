@@ -20,9 +20,41 @@
 #include <tap/basic.h>
 
 #include "knot/zone/timers.h"
-#include "knot/zone/zone.h"
 #include "libknot/internal/mem.h"
 #include "libknot/libknot.h"
+
+static const knot_dname_t *zone_1 = (uint8_t *)"\x5""hello";
+static const knot_dname_t *zone_2 = (uint8_t *)"\x4""knot";
+static const knot_dname_t *zone_3 = (uint8_t *)"\x3""abc";
+
+static int sweep_error(const knot_dname_t *zone, bool *keep, void *ctx)
+{
+	return KNOT_ERROR;
+}
+
+static int sweep_keep_all(const knot_dname_t *zone, bool *keep, void *ctx)
+{
+	if (!zone || !keep) {
+		return KNOT_EINVAL;
+	}
+
+	*keep = true;
+
+	return KNOT_EOK;
+}
+
+static int sweep_remove_one(const knot_dname_t *zone, bool *keep, void *ctx)
+{
+	if (!zone || !keep || !ctx) {
+		return KNOT_EINVAL;
+	}
+
+	const knot_dname_t *to_remove = ctx;
+
+	*keep = knot_dname_cmp(zone, to_remove) != 0;
+
+	return KNOT_EOK;
+}
 
 int main(int argc, char *argv[])
 {
@@ -32,21 +64,9 @@ int main(int argc, char *argv[])
 	char dbid_buf[] = "/tmp/timerdb.XXXXXX";
 	const char *dbid = mkdtemp(dbid_buf);
 
-	// Mockup zones.
-	zone_t *zone_1 = zone_new((uint8_t *)"\x5""test1");
-	zone_t *zone_2 = zone_new((uint8_t *)"\x5""test2");
-	assert(zone_1 && zone_2);
-
-	// Mockup zonedb.
-	knot_zonedb_t *zone_db = knot_zonedb_new(2);
-	assert(zone_db);
-	int ret = knot_zonedb_insert(zone_db, zone_1);
-	assert(ret == KNOT_EOK);
-	ret = knot_zonedb_insert(zone_db, zone_2);
-	assert(ret == KNOT_EOK);
 
 	timerdb_t *db = NULL;
-	ret = timerdb_open(&db, dbid);
+	int ret = timerdb_open(&db, dbid);
 	ok(ret == KNOT_EOK && db != NULL, "zone timers: open");
 
 	// Sample entries
@@ -72,59 +92,65 @@ int main(int argc, char *argv[])
 	timerdb_entry_t timers = { 0 };
 
 	// Write the timers.
-	ret = timerdb_write(db, zone_1->name, &entry_1);
+	ret = timerdb_write(db, zone_1, &entry_1);
 	ok(ret == KNOT_EOK, "zone timers: write zone1");
 
-	ret = timerdb_write(db, zone_2->name, &entry_2);
+	ret = timerdb_write(db, zone_2, &entry_2);
 	ok(ret == KNOT_EOK, "zone timers: write zone2");
 
 	// Read the timers.
 	memset(&timers, 0, sizeof(timers));
-	ret = timerdb_read(db, zone_1->name, &timers);
+	ret = timerdb_read(db, zone_1, &timers);
 	ok(ret == KNOT_EOK && memcmp(&entry_1, &timers, sizeof(timers)) == 0,
 	   "zone timers: read zone1");
 
 	memset(&timers, 0, sizeof(timers));
-	ret = timerdb_read(db, zone_2->name, &timers);
+	ret = timerdb_read(db, zone_2, &timers);
 	ok(ret == KNOT_EOK && memcmp(&entry_2, &timers, sizeof(timers)) == 0,
 	   "zone timers: read zone2");
 
 	// Replace a timer.
-	ret = timerdb_write(db, zone_1->name, &entry_3);
+	ret = timerdb_write(db, zone_1, &entry_3);
 	ok(ret == KNOT_EOK, "zone timers: rewrite zone1");
 
 	memset(&timers, 0, sizeof(timers));
-	ret = timerdb_read(db, zone_1->name, &timers);
+	ret = timerdb_read(db, zone_1, &timers);
 	ok(ret == KNOT_EOK && memcmp(&entry_3, &timers, sizeof(timers)) == 0,
 	   "zone timers: read rewritten");
 
-	// zonedb_sweep and read again.
-	ret = timerdb_sweep(db, zone_db);
-	ok(ret == KNOT_EOK, "zone timers: sweep");
+	// Failing sweep.
+
+	ret = timerdb_sweep(db, sweep_error, NULL);
+	ok(ret == KNOT_ERROR, "zone timers: sweep raises error");
 
 	memset(&timers, 0, sizeof(timers));
-	ret = timerdb_read(db, zone_2->name, &timers);
+	ret = timerdb_read(db, zone_2, &timers);
 	ok(ret == KNOT_EOK && memcmp(&entry_2, &timers, sizeof(timers)) == 0,
-	   "zone timers: read zone2 after sweep");
+	   "zone timers: read zone2 after unsuccessful sweep");
+
+	// Sweep keeps all.
+	ret = timerdb_sweep(db, sweep_keep_all, NULL);
+	ok(ret == KNOT_EOK, "zone timers: sweep kept all");
+
+	memset(&timers, 0, sizeof(timers));
+	ret = timerdb_read(db, zone_1, &timers);
+	ok(ret == KNOT_EOK && memcmp(&entry_3, &timers, sizeof(timers)) == 0,
+	   "zone timers: read zone1 after sweep keeping all");
 
 	// Read non-existent.
 	memset(&timers, 0, sizeof(timers));
-	ret = timerdb_read(db, (uint8_t *)"\x3""abc", &timers);
+	ret = timerdb_read(db, zone_3, &timers);
 	ok(ret == KNOT_ENOENT, "zone timers: read non-existent");
 
 	// Remove first zone from db and sweep.
-	ret = knot_zonedb_del(zone_db, zone_1->name);
-	ok(ret == KNOT_EOK, "zone1 removed");
 
-	ret = timerdb_sweep(db, zone_db);
+	ret = timerdb_sweep(db, sweep_remove_one, (void *)zone_1);
 	ok(ret == KNOT_EOK, "zone timers: sweep");
 
-	ret = timerdb_read(db, zone_1->name, &timers);
+	ret = timerdb_read(db, zone_1, &timers);
 	ok(ret == KNOT_ENOENT, "zone timers: read removed zone");
 
 	// Clean up.
-	zone_free(&zone_1);
-	zone_free(&zone_2);
 	timerdb_close(db);
 
 	// Cleanup temporary DB.

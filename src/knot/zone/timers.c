@@ -14,9 +14,12 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdlib.h>
+#include <assert.h>
+
 #include "knot/zone/timers.h"
-#include "knot/zone/zonedb.h"
 #include "libknot/dname.h"
+#include "libknot/errcode.h"
 #include "libknot/internal/namedb/namedb.h"
 #include "libknot/internal/namedb/namedb_lmdb.h"
 
@@ -237,9 +240,9 @@ int timerdb_read(timerdb_t *db, const knot_dname_t *zone, timerdb_entry_t *entry
 	return deserialize_entry(entry, &val);
 }
 
-int timerdb_sweep(timerdb_t *db, knot_zonedb_t *zones)
+int timerdb_sweep(timerdb_t *db, timerdb_sweep_cb callback, void *ctx)
 {
-	if (!db || !zones) {
+	if (!db || !callback) {
 		return KNOT_EINVAL;
 	}
 
@@ -249,6 +252,7 @@ int timerdb_sweep(timerdb_t *db, knot_zonedb_t *zones)
 		return ret;
 	}
 
+	int result = KNOT_EOK;
 	bool modified = false;
 
 	namedb_iter_t *it = db->api->iter_begin(&txn, 0);
@@ -259,22 +263,29 @@ int timerdb_sweep(timerdb_t *db, knot_zonedb_t *zones)
 
 	while (it) {
 		namedb_val_t key;
-		ret = db->api->iter_key(it, &key);
-		if (ret != KNOT_EOK) {
-			db->api->txn_abort(&txn);
-			return ret;
+		result = db->api->iter_key(it, &key);
+		if (result != KNOT_EOK) {
+			break;
 		}
 
-		ret = knot_dname_wire_check(key.data, key.data + key.len, NULL);
-		if (ret != key.len) {
-			db->api->txn_abort(&txn);
-			return ret;
+		result = knot_dname_wire_check(key.data, key.data + key.len, NULL);
+		if (result != key.len) {
+			break;
 		}
 
 		const knot_dname_t *zone = key.data;
-		if (knot_zonedb_find(zones, zone) == NULL) {
-			db->api->del(&txn, &key);
+		bool keep = true;
+		result = callback(zone, &keep, ctx);
+		if (result != KNOT_EOK) {
+			break;
+		}
+
+		if (!keep) {
 			modified = true;
+			result = db->api->del(&txn, &key);
+			if (result != KNOT_EOK) {
+				break;
+			}
 		}
 
 		it = db->api->iter_next(it);
@@ -282,9 +293,9 @@ int timerdb_sweep(timerdb_t *db, knot_zonedb_t *zones)
 
 	db->api->iter_finish(it);
 
-	if (!modified) {
+	if (result != KNOT_EOK || !modified) {
 		db->api->txn_abort(&txn);
-		return KNOT_EOK;
+		return result;
 	}
 
 	return db->api->txn_commit(&txn);
