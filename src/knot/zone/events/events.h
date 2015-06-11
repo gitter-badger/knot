@@ -20,8 +20,8 @@
 #include <stdbool.h>
 
 #include "knot/common/evsched.h"
-#include "libknot/internal/namedb/namedb.h"
 #include "knot/worker/pool.h"
+#include "knot/zone/timers.h"
 
 /* Timer special values. */
 #define ZONE_EVENT_NOW 0
@@ -54,7 +54,7 @@ typedef struct zone_events {
 
 	event_t *event;			//!< Scheduler event.
 	worker_pool_t *pool;		//!< Server worker pool.
-	namedb_t *timers_db;		//!< Persistent zone timers database.
+	timerdb_t *timer_db;		//!< Persistent zone timers database.
 
 	task_t task;			//!< Event execution context.
 	zone_events_times_t time;	//!< Event execution times.
@@ -78,12 +78,12 @@ int zone_events_init(struct zone *zone);
  * \param zone       Zone to setup.
  * \param workers    Worker thread pool.
  * \param scheduler  Event scheduler.
- * \param timers_db  Persistent timers database. Can be NULL.
+ * \param timers_db  Persistent timers database.
  *
  * \return KNOT_E*
  */
 int zone_events_setup(struct zone *zone, worker_pool_t *workers,
-                      evsched_t *scheduler, namedb_t *timers_db);
+                      evsched_t *scheduler, timerdb_t *timer_db);
 
 /*!
  * \brief Deinitialize zone events.
