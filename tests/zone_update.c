@@ -58,21 +58,20 @@ int main(int argc, char *argv[])
 {
 	plan_lazy();
 
-#ifdef falala
-	knot_dname_t *apex = knot_dname_from_str_alloc("test");
+	knot_dname_t *apex = knot_dname_from_str_alloc("test.");
 	assert(apex);
 	zone_contents_t *zone = zone_contents_new(apex);
-	knot_dname_free(&apex, NULL);
 	assert(zone);
 	zone_t z = { .contents = zone, .name = apex };
 
 	changeset_t ch;
 	int ret = changeset_init(&ch, apex);
+	knot_dname_free(&apex, NULL);
 	assert(ret == KNOT_EOK);
 
 	zone_update_t update;
 	zone_update_init(&update, &z, UPDATE_INCREMENTAL);
-	ok(update.zone == &z && update.change == ch && update.mm.alloc,
+	ok(update.zone == &z && memcmp(&update.change, &ch, sizeof(ch)) == 0 && update.mm.alloc,
 	   "zone update: init");
 
 	// Fill zone
@@ -83,7 +82,7 @@ int main(int argc, char *argv[])
 	assert(ret == 0);
 
 	// Check that old node is returned without changes
-	ok(zone->apex == zone_update_get_node(&update, zone->apex->owner),
+	ok(zone->apex == zone_update_get_node(&update, zone->apex->owner, sc->r_type),
 	   "zone update: no change");
 
 	// Add RRs to add section
@@ -92,7 +91,7 @@ int main(int argc, char *argv[])
 	assert(ret == 0);
 
 	// Check that apex TXT has two RRs now
-	const zone_node_t *synth_node = zone_update_get_node(&update, zone->apex->owner);
+	const zone_node_t *synth_node = zone_update_get_node(&update, zone->apex->owner, sc->r_type);
 	ok(synth_node && node_rdataset(synth_node, KNOT_RRTYPE_TXT)->rr_count == 2,
 	   "zone update: add change");
 
@@ -102,17 +101,16 @@ int main(int argc, char *argv[])
 	assert(ret == 0);
 
 	// Check that apex TXT has one RR again
-	synth_node = zone_update_get_node(&update, zone->apex->owner);
+	synth_node = zone_update_get_node(&update, zone->apex->owner, sc->r_type);
 	ok(synth_node && node_rdataset(synth_node, KNOT_RRTYPE_TXT)->rr_count == 1,
 	   "zone update: del change");
 
 	zone_update_clear(&update);
-	ok(update.zone == NULL && update.change == NULL, "zone update: cleanup");
+	ok(update.zone == NULL && changeset_empty(&update.change), "zone update: cleanup");
 
 	changeset_clear(&ch);
 	zs_scanner_free(sc);
 	zone_contents_deep_free(&zone);
-#endif
 
 	return 0;
 }
