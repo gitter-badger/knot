@@ -431,6 +431,20 @@ static int insert(namedb_txn_t *txn, namedb_val_t *key, namedb_val_t *val, unsig
 		mdb_flags |= MDB_RESERVE;
 	}
 
+	/* Reserve some pages for clearing */
+	MDB_stat stat;
+	MDB_envinfo info;
+	if (mdb_stat(txn->txn, env->dbi, &stat) != MDB_SUCCESS ||
+	    mdb_env_info(env->env, &info) != MDB_SUCCESS) {
+		return KNOT_ERROR;
+	}
+	/* Reserve last 20% free pages for potential compaction.  */
+	size_t max_pages = 8 * ((info.me_mapsize / stat.ms_psize) / 10);
+	size_t used_pages = stat.ms_branch_pages + stat.ms_leaf_pages + stat.ms_overflow_pages;
+	if (used_pages >= max_pages) {
+		return KNOT_ESPACE;
+	}
+
 	int ret = mdb_put(txn->txn, env->dbi, &db_key, &data, mdb_flags);
 	if (ret != MDB_SUCCESS) {
 		return lmdb_error_to_knot(ret);
