@@ -22,8 +22,6 @@
 #include "knot/updates/apply.h"
 #include "knot/dnssec/zone-nsec.h"
 
-#ifdef falala
-
 static const char *zone_str =
 "test. 3600 IN SOA a. b. 1 1 1 1 1\n"
 "b.test. IN TXT \"test\"\n"
@@ -57,7 +55,7 @@ static const char *del2 =
 "b.test. IN TXT \"test\"\n"
 "x.test. IN TXT \"test\"\n";
 
-static const char *flags_zone = 
+static const char *flags_zone =
 "test. 3600 IN SOA a. b. 1 1 1 1 1\n"
 "*.test. IN A 5.6.7.8\n"
 "sub.test. IN NS glue.sub.test.\n"
@@ -65,12 +63,12 @@ static const char *flags_zone =
 "x.test. IN TXT \"test\"\n"
 "below.x.test. IN A 1.2.3.4\n";
 
-static const char *add_ns = 
+static const char *add_ns =
 "test. 3600 IN SOA a. b. 1 1 1 1 1\n"
 "sub.test. IN A 1.2.3.4\n"
 "x.test. IN NS deleg.somewhere.\n";
 
-static const char *add_ns_pair = 
+static const char *add_ns_pair =
 "test. 3600 IN SOA a. b. 1 1 1 1 1\n"
 "sub2.test. IN NS glue2.sub.test.\n"
 "glue2.sub.test. IN A 1.2.3.4\n";
@@ -151,7 +149,7 @@ static bool nsec3_set_ok(const zone_node_t *n, const zone_contents_t *zone)
 		diag("NSEC3 node not set");
 		return false;
 	}
-	
+
 	knot_dname_t *nsec3_name =
 		knot_create_nsec3_owner(n->owner,
 		                        zone->apex->owner,
@@ -211,7 +209,7 @@ static bool test_prev_for_tree(const zone_tree_t *t, const zone_contents_t *zone
 				return false;
 			}
 		}
-		
+
 		if (node_rrtype_exists(zone->apex, KNOT_RRTYPE_NSEC3PARAM) &&
 		    !node_rrtype_exists(curr, KNOT_RRTYPE_NSEC3)) {
 			if (!nsec3_set_ok(curr, zone)) {
@@ -221,10 +219,10 @@ static bool test_prev_for_tree(const zone_tree_t *t, const zone_contents_t *zone
 				return false;
 			}
 		}
-		
+
 		hattrie_iter_next(itt);
 	}
-	
+
 	hattrie_iter_free(itt);
 	const zone_node_t *first_prev = get_ref(first, t, zone, REF_PREVIOUS);
 	return first_prev == curr;
@@ -245,7 +243,7 @@ static bool hints_contain(const struct rr_data *data,
 		diag("Additional hints not set");
 		return false;
 	}
-	
+
 	for (uint16_t i = 0; i < data->rrs.rr_count; ++i) {
 		if (data->additional[i]) {
 			for (size_t j = 0; j < hint_count; ++j) {
@@ -262,7 +260,7 @@ static bool hints_contain(const struct rr_data *data,
 			}
 		}
 	}
-	
+
 	return false;
 }
 
@@ -281,7 +279,7 @@ static bool test_hints(const zone_contents_t *zone, struct zone_flags *hints,
 			}
 		}
 	}
-	
+
 	return true;
 }
 
@@ -324,82 +322,74 @@ int main(int argc, char *argv[])
 	assert(sc);
 	ret = zs_scanner_parse(sc, zone_str, zone_str + strlen(zone_str), true);
 	assert(ret == 0);
-	
+
+	// Init zone update structure
+	changeset_t ch;
+	changeset_init(&ch, owner);
+	zone_update_init(&up, &z, UPDATE_INCREMENTAL);
+
 	// Test full adjust
 	ret = zone_adjust_full(&up);
 	ok(ret == KNOT_EOK && test_zone(zone), "zone adjust: full adjust");
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: addition");
-	
-	// Init zone update structure
-	changeset_t ch;
-	changeset_init(&ch, owner);
-	zone_update_init(&up, zone, &ch);
-	
+
 	// --- PREV pointer tests ---
-	
+
 	// Add a record
-	zc.z = ch.add;
+	sc->data = ch.add;
 	params.ch = &ch;
 	add_and_update(zone, &ch, sc, add1);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: addition");
-	
+
 	// Remove a record
-	zc.z = ch.remove;
+	sc->data = ch.remove;
 	add_and_update(zone, &ch, sc, add1);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: deletion");
-	
+
 	// Remove the last record
-	zc.z = ch.remove;
+	sc->data = ch.remove;
 	add_and_update(zone, &ch, sc, del1);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: delete last");
-	
+
 	// Add record that will become last
-	zc.z = ch.add;
+	sc->data = ch.add;
 	add_and_update(zone, &ch, sc, del1);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: add last");
-	
+
 	// Add and remove records
-	zc.z = ch.add;
+	sc->data = ch.add;
 	add_and_update(zone, &ch, sc, add1);
-	zc.z = ch.remove;
+	sc->data = ch.remove;
 	add_and_update(zone, &ch, sc, del2);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: add and remove");
-	
+
 	// --- NSEC3 tests ---
-	
+
 	// Add all NSEC3 records
-	zc.z = ch.add;
+	sc->data = ch.add;
 	add_and_update(zone, &ch, sc, switch_nsec3);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: switch NSEC3");
-	
+
 	// Add new record and its NSEC3
-	zc.z = ch.add;
+	sc->data = ch.add;
 	add_and_update(zone, &ch, sc, add_nsec3);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: add NSEC3");
-	
+
 	// Remove previously added NSEC3
-	zc.z = ch.remove;
+	sc->data = ch.remove;
 	add_and_update(zone, &ch, sc, add_nsec3);
 	TEST_VALIDITY(zone, &up, &ch, "zone adjust: remove NSEC3");
-	
+
 	// --- Additional pointers tests ---
-	
+
 	ok(test_hints(zone, ZONE_HINTS_INIT, 2), "zone adjust: additional hints");
-	
+
 	// Remove glue from zone
-	
-	zc.z = ch.remove;
+
+	sc->data = ch.remove;
 	add_and_update(zone, &ch, sc, remove_glue);
 	ok(test_hints(zone, ZONE_HINTS_ADD, 2), "zone adjust: remove glue hints");
-	
-	return 0;
-}
 
-#endif
-
-int main(int argc, char *argv[])
-{
-	plan_lazy();
 	return 0;
 }
 
