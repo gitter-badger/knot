@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
 
 	zone_update_t update;
 	zone_update_init(&update, &z, UPDATE_INCREMENTAL);
-	ok(update.zone == &z && memcmp(&update.change, &ch, sizeof(ch)) == 0 && update.mm.alloc,
+	ok(update.zone == &z && changeset_empty(&update.change) && update.mm.alloc,
 	   "zone update: init");
 
 	// Fill zone
@@ -83,20 +83,24 @@ int main(int argc, char *argv[])
 
 	// Check that old node is returned without changes
 	ok(zone->apex == zone_update_get_node(&update, zone->apex->owner, sc->r_type),
-	   "zone update: no change");
+	   "zone update: no change - apex");
+
+	const zone_node_t *synth_node = zone_update_get_node(&update, zone->apex->owner, sc->r_type);
+	ok(synth_node && node_rdataset(synth_node, KNOT_RRTYPE_TXT)->rr_count == 1,
+	   "zone update: no change - rr_count");
 
 	// Add RRs to add section
-	sc->data = ch.add;
+	sc->data = update.change.add;
 	ret = zs_scanner_parse(sc, add_str, add_str + strlen(add_str), true);
 	assert(ret == 0);
 
 	// Check that apex TXT has two RRs now
-	const zone_node_t *synth_node = zone_update_get_node(&update, zone->apex->owner, sc->r_type);
+	synth_node = zone_update_get_node(&update, zone->apex->owner, sc->r_type);
 	ok(synth_node && node_rdataset(synth_node, KNOT_RRTYPE_TXT)->rr_count == 2,
 	   "zone update: add change");
 
 	// Add RRs to remove section
-	sc->data = ch.remove;
+	sc->data = update.change.remove;
 	ret = zs_scanner_parse(sc, del_str, del_str + strlen(del_str), true);
 	assert(ret == 0);
 

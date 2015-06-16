@@ -41,8 +41,8 @@ static bool nodes_equal(const zone_node_t *node_a, const zone_node_t *node_b)
 			return false;
 		}
 		knot_rrset_t rrset_b = node_rrset(node_b, rrset_a.type);
-		if (knot_rdataset_eq(&rrset_a.rrs, &rrset_b.rrs)) {
-			return true;
+		if (!knot_rdataset_eq(&rrset_a.rrs, &rrset_b.rrs)) {
+			return false;
 		}
 	}
 
@@ -294,6 +294,7 @@ static const zone_node_t *temp_nodes_get(zone_update_t *update,
 			// Free old node contents, replace with new.
 			node_free_rrsets(stored_node, mm);
 			stored_node->rrs = synth_node->rrs;
+			stored_node->rrset_count = synth_node->rrset_count;
 			synth_node->rrs = NULL;
 			node_free(&synth_node, mm);
 		}
