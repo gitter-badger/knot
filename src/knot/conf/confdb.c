@@ -277,58 +277,77 @@ static int db_insert(
 int conf_db_set(
 	conf_t *conf,
 	namedb_txn_t *txn,
-	yp_check_ctx_t *in)
+	yp_check_ctx_t *ctx)
 {
-	if (conf == NULL || txn == NULL || in == NULL) {
+	if (conf == NULL || txn == NULL || ctx == NULL) {
 		return KNOT_EINVAL;
 	}
 
-	uint8_t k[CONF_MAX_KEY_LEN];
-	namedb_val_t key = { k, CONF_MIN_KEY_LEN };
+	yp_node_t *node = &ctx->nodes[ctx->current];
+	yp_node_t *parent = node->parent;
 
-	// Ignore alone key0 insertion.
-	if (in->event == YP_EKEY0) {
+	// Ignore alone key0.
+	if (parent == NULL && node->id_len == 0) {
 		return KNOT_EOK;
 	}
 
+	int ret;
+	uint8_t k[CONF_MAX_KEY_LEN];
+	namedb_val_t key = { k, CONF_MIN_KEY_LEN };
+
 	// Set key0 code.
-	int ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, in->key0->name,
-	                       false, &k[KEY0_POS]);
+	const yp_node_t *id_node = (parent == NULL) ? node : parent;
+	ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, id_node->item->name,
+	                   false, &k[KEY0_POS]);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
 
 	// Set id part.
-	if (in->id_len > 0) {
-		memcpy(k + CONF_MIN_KEY_LEN, in->id, in->id_len);
-		key.len += in->id_len;
-	}
+	if (id_node->id_len > 0) {
+		memcpy(k + CONF_MIN_KEY_LEN, id_node->id, id_node->id_len);
+		key.len += id_node->id_len;
 
-	// Insert id.
-	if (in->event == YP_EID) {
 		k[KEY1_POS] = CONF_CODE_KEY1_ID;
 		namedb_val_t val = { NULL };
 
-		// Check for already configured id.
-		ret = conf->api->find(txn, &key, &val, 0);
-		if (ret == KNOT_EOK) {
-			return KNOT_CONF_EREDEFINE;
+		// Insert id.
+		if (parent == NULL) {
+			ret = conf->api->find(txn, &key, &val, 0);
+			if (ret == KNOT_EOK) {
+				return KNOT_CONF_EREDEFINE;
+			}
+			ret = db_insert(conf, txn, &key, &val, false);
+			if (ret != KNOT_EOK) {
+				return ret;
+			}
+		// Check for existing id.
+		} else {
+			ret = conf->api->find(txn, &key, &val, 0);
+			if (ret != KNOT_EOK) {
+				return KNOT_YP_ENOID;
+			}
 		}
+	}
 
-		return db_insert(conf, txn, &key, &val, false);
-	// Insert data.
-	} else {
+	// Insert key1 data.
+	if (parent != NULL) {
 		// Set key1 code.
-		ret = conf_db_code(conf, txn, k[KEY0_POS], in->key1->name,
+		ret = conf_db_code(conf, txn, k[KEY0_POS], node->item->name,
 		                   false, &k[KEY1_POS]);
 		if (ret != KNOT_EOK) {
 			return ret;
 		}
 
-		namedb_val_t val = { in->data, in->data_len };
-		return db_insert(conf, txn, &key, &val,
-		                 in->key1->flags & YP_FMULTI);
+		namedb_val_t val = { node->data, node->data_len };
+		ret = db_insert(conf, txn, &key, &val,
+		                node->item->flags & YP_FMULTI);
+		if (ret != KNOT_EOK) {
+			return ret;
+		}
 	}
+
+	return KNOT_EOK;
 }
 
 int conf_db_get(
@@ -572,10 +591,16 @@ int conf_db_iter_id(
 
 int conf_db_raw_dump(
 	conf_t *conf,
+	namedb_txn_t *txn,
 	const char *file_name)
 {
 	if (conf == NULL) {
 		return KNOT_EINVAL;
+	}
+
+	// Use config read transaction if not specified.
+	if (txn == NULL) {
+		txn = &conf->read_txn;
 	}
 
 	FILE *fp = stdout;
@@ -588,8 +613,7 @@ int conf_db_raw_dump(
 
 	int ret = KNOT_EOK;
 
-	namedb_txn_t txn = conf->read_txn;
-	namedb_iter_t *it = conf->api->iter_begin(&txn, NAMEDB_FIRST);
+	namedb_iter_t *it = conf->api->iter_begin(txn, NAMEDB_FIRST);
 	while (it != NULL) {
 		namedb_val_t key;
 		ret = conf->api->iter_key(it, &key);

@@ -439,31 +439,24 @@ static int item_calls(
 		.err_str = err_str
 	};
 
-	const yp_item_t *item;
+	yp_node_t *node = &ctx->nodes[ctx->current];
+	const yp_item_t *item = node->item;
 
 	// Prepare previous context.
-	switch (ctx->event) {
-	case YP_EKEY0:
-		// Reset previous context id.
-		prev->id_len = 0;
-		// Set previous context key0 if group item.
-		if (ctx->key0->type == YP_TGRP) {
-			prev->key0 = ctx->key0;
+	if (node->parent == NULL) {
+		// New section.
+		if (node->id_len == 0) {
+			prev->key0 = node->item;
+			prev->id_len = 0;
 			return KNOT_EOK;
+		// New identifier.
+		} else {
+			memcpy(prev->id, node->id, node->id_len);
+			prev->id_len = node->id_len;
+			prev->file = parser->file.name;
+			prev->line = parser->line_count;
+			item = node->item->var.g.id;
 		}
-		item = ctx->key0;
-		break;
-	case YP_EID:
-		memcpy(prev->id, ctx->id, ctx->id_len);
-		prev->id_len = ctx->id_len;
-		prev->file = parser->file.name;
-		prev->line = parser->line_count;
-		item = ctx->key1;
-		break;
-	default:
-		assert(ctx->event == YP_EKEY1);
-		item = ctx->key1;
-		break;
 	}
 
 	// Execute item callbacks.
@@ -572,7 +565,7 @@ int conf_parse(
 			log_current_err(input, is_file, parser, check_ret, NULL);
 			break;
 		}
-		if (ctx->event != YP_EKEY1) {
+		if (ctx->current == 0) {
 			check_ret = previous_block_calls(conf, txn, prev, &err_str);
 			if (check_ret != KNOT_EOK) {
 				log_prev_err(input, is_file, prev, check_ret, err_str);

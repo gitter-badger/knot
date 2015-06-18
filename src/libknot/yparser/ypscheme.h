@@ -40,6 +40,8 @@
 #define YP_NIL			INT64_MIN
 /*! Maximal number of miscellaneous callbacks/pointers. */
 #define YP_MAX_MISC_COUNT	4
+/*! Maximal number of nodes. */
+#define YP_MAX_NODE_COUNT	2
 
 /*! Helper macros for item variables definition. */
 #define YP_VNONE	.var.i = { 0 }
@@ -170,16 +172,13 @@ struct yp_item {
 	yp_item_t *sub_items;
 };
 
-/*! Context parameters for check operations. */
-typedef struct {
-	/*! Used scheme. */
-	const yp_item_t *scheme;
-	/*! Current key0 item. */
-	const yp_item_t *key0;
-	/*! Current key1 item. */
-	const yp_item_t *key1;
-	/*! Current parser event. */
-	yp_event_t event;
+typedef struct yp_node yp_node_t;
+
+struct yp_node {
+	/*! Parent node. */
+	yp_node_t *parent;
+	/*! Node item descriptor. */
+	const yp_item_t *item;
 	/*! Current binary id length. */
 	size_t id_len;
 	/*! Current binary id. */
@@ -188,6 +187,16 @@ typedef struct {
 	size_t data_len;
 	/*! Current item data. */
 	uint8_t data[YP_MAX_DATA_LEN];
+};
+
+/*! Context parameters for check operations. */
+typedef struct {
+	/*! Used scheme. */
+	const yp_item_t *scheme;
+	/*! Nodes index of the current node. */
+	size_t current;
+	/*! Node stack. */
+	yp_node_t nodes[YP_MAX_NODE_COUNT];
 } yp_check_ctx_t;
 
 /*!
@@ -243,7 +252,7 @@ yp_check_ctx_t* yp_scheme_check_init(
  *
  * If the item is correct, context also contains binary value of the item.
  *
- * \param[in,out] ctx New copy of the scheme.
+ * \param[in,out] ctx Check context.
  * \param[in] parser Parser context.
  *
  * \return Error code, KNOT_EOK if success.
@@ -251,6 +260,29 @@ yp_check_ctx_t* yp_scheme_check_init(
 int yp_scheme_check_parser(
 	yp_check_ctx_t *ctx,
 	const yp_parser_t *parser
+);
+
+/*!
+ * Checks the string context against the scheme.
+ *
+ * Description: key0[id].key1 data
+ *
+ * If the item is correct, context also contains binary value of the item.
+ *
+ * \param[in,out] ctx Check context.
+ * \param[in] key0 Key0 item name.
+ * \param[in] key1 Key1 item name.
+ * \param[in] id Item identifier.
+ * \param[in] data Item data.
+ *
+ * \return Error code, KNOT_EOK if success.
+ */
+int yp_scheme_check_str(
+	yp_check_ctx_t *ctx,
+	const char *key0,
+	const char *key1,
+	const char *id,
+	const char *data
 );
 
 /*!
@@ -262,7 +294,6 @@ void yp_scheme_check_deinit(
 	yp_check_ctx_t *ctx
 );
 
-// TODO: check from string.
 // TODO: scheme add/remove item.
 
 /*! @} */

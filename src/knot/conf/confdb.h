@@ -58,7 +58,7 @@ int conf_db_init(
 int conf_db_set(
 	conf_t *conf,
 	namedb_txn_t *txn,
-	yp_check_ctx_t *in
+	yp_check_ctx_t *ctx
 );
 
 int conf_db_get(
@@ -114,5 +114,6 @@ int conf_db_code(
 
 int conf_db_raw_dump(
 	conf_t *conf,
+	namedb_txn_t *txn,
 	const char *file_name
 );

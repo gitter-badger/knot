@@ -63,13 +63,53 @@ static const yp_item_t static_scheme[] = {
 	{ NULL }
 };
 
-int main(int argc, char *argv[])
-{
-	plan_lazy();
-
+static int scheme_find_test(void) {
 	int ret;
-	const char *str;
 	yp_item_t *scheme;
+
+	ret = yp_scheme_copy(&scheme, static_scheme);
+	ok(ret == KNOT_EOK, "scheme copy");
+
+	const yp_item_t *i = yp_scheme_find(C_OPT, NULL, scheme);
+	ok(i != NULL, "scheme find");
+	if (i == NULL) {
+		goto error_scheme;
+	}
+	ok(strcmp(i->name + 1, "option") == 0, "name check");
+	i = yp_scheme_find(C_STR, C_GRP, scheme);
+	ok(i != NULL, "scheme find");
+	if (i == NULL) {
+		goto error_scheme;
+	}
+	ok(strcmp(i->name + 1, "string") == 0, "name check");
+
+	yp_scheme_free(scheme);
+
+error_scheme:
+	return 0;
+}
+
+#define SET_INPUT_STR(str) { \
+	ret = yp_set_input_string(yp, str, strlen(str)); \
+	ok(ret == KNOT_EOK, "set input string"); \
+	}
+
+#define PARSE_CHECK(depth) { \
+	ret = yp_parse(yp); \
+	ok(ret == KNOT_EOK, "parse"); \
+	ret = yp_scheme_check_parser(ctx, yp); \
+	ok(ret == KNOT_EOK, "check parser"); \
+	node = &ctx->nodes[ctx->current]; \
+	parent = node->parent; \
+	ok(ctx->current == depth, "depth check"); \
+	}
+
+static int parser_test(void) {
+	int ret;
+	yp_item_t *scheme;
+	yp_node_t *node;
+	yp_node_t *parent;
+	const yp_item_t *id;
 
 	ret = yp_scheme_copy(&scheme, static_scheme);
 	ok(ret == KNOT_EOK, "scheme copy");
@@ -81,139 +121,199 @@ int main(int argc, char *argv[])
 	yp_check_ctx_t *ctx = yp_scheme_check_init(scheme);
 	ok(ctx != NULL, "create check ctx");
 	if (ctx == NULL) {
-		goto skip_all;
+		goto error_parser;
 	}
 
 	/* Key0 test. */
-	str = "option: one";
-	ret = yp_set_input_string(yp, str, strlen(str));
-	ok(ret == KNOT_EOK, "set input string");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY0, "event check");
-	ok(strcmp(ctx->key0->name + 1, "option") == 0, "name check");
-	ok(ctx->key0->type == YP_TOPT, "type check");
-	ok(yp_opt(ctx->data) == 1, "value check");
+	diag("parser key0 test");
+	SET_INPUT_STR("option: one");
+	PARSE_CHECK(0);
+	ok(strcmp(node->item->name + 1, "option") == 0, "name check");
+	ok(node->item->type == YP_TOPT, "type check");
+	ok(yp_opt(node->data) == 1, "value check");
 
 	/* Boolean test. */
-	str = "bool: true\nbool: on\nbool: false\nbool: off";
-	ret = yp_set_input_string(yp, str, strlen(str));
-	ok(ret == KNOT_EOK, "set input string");
+	diag("parser boolean test");
+	SET_INPUT_STR("bool: true\nbool: on\nbool: false\nbool: off");
 	for (int i = 0; i < 2; i++) {
-		ret = yp_parse(yp);
-		ok(ret == KNOT_EOK, "parse");
-		ret = yp_scheme_check_parser(ctx, yp);
-		ok(ret == KNOT_EOK, "check parser");
-		ok(ctx->event == YP_EKEY0, "event check");
-		ok(strcmp(ctx->key0->name + 1, "bool") == 0, "name check");
-		ok(ctx->key0->type == YP_TBOOL, "type check");
-		ok(yp_bool(ctx->data_len) == true, "value check");
+		PARSE_CHECK(0);
+		ok(strcmp(node->item->name + 1, "bool") == 0, "name check");
+		ok(node->item->type == YP_TBOOL, "type check");
+		ok(yp_bool(node->data_len) == true, "value check");
 	}
 	for (int i = 0; i < 2; i++) {
-		ret = yp_parse(yp);
-		ok(ret == KNOT_EOK, "parse");
-		ret = yp_scheme_check_parser(ctx, yp);
-		ok(ret == KNOT_EOK, "check parser");
-		ok(ctx->event == YP_EKEY0, "event check");
-		ok(strcmp(ctx->key0->name + 1, "bool") == 0, "name check");
-		ok(ctx->key0->type == YP_TBOOL, "type check");
-		ok(yp_bool(ctx->data_len) == false, "value check");
+		PARSE_CHECK(0);
+		ok(strcmp(node->item->name + 1, "bool") == 0, "name check");
+		ok(node->item->type == YP_TBOOL, "type check");
+		ok(yp_bool(node->data_len) == false, "value check");
 	}
 
 	/* Group test. */
-	str = "group:\n integer: 20\n string: [short, \"long string\"]";
-	ret = yp_set_input_string(yp, str, strlen(str));
-	ok(ret == KNOT_EOK, "set input string");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY0, "event check");
-	ok(strcmp(ctx->key0->name + 1, "group") == 0, "name check");
-	ok(ctx->key0->type == YP_TGRP, "type check");
-	ok(ctx->data_len == 0, "value length check");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY1, "event check");
-	ok(strcmp(ctx->key1->name + 1, "integer") == 0, "name check");
-	ok(ctx->key1->type == YP_TINT, "type check");
-	ok(yp_int(ctx->data, ctx->data_len) == 20, "value check");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY1, "event check");
-	ok(strcmp(ctx->key1->name + 1, "string") == 0, "name check");
-	ok(ctx->key1->type == YP_TSTR, "type check");
-	ok(strcmp(yp_str(ctx->data), "short") == 0, "value check");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY1, "event check");
-	ok(strcmp(ctx->key1->name + 1, "string") == 0, "name check");
-	ok(ctx->key1->type == YP_TSTR, "type check");
-	ok(strcmp(yp_str(ctx->data), "long string") == 0, "value check");
+	diag("parser group test");
+	SET_INPUT_STR("group:\n integer: 20\n string: [short, \"long string\"]");
+	PARSE_CHECK(0);
+	ok(strcmp(node->item->name + 1, "group") == 0, "name check");
+	ok(node->item->type == YP_TGRP, "type check");
+	ok(node->data_len == 0, "value length check");
+	PARSE_CHECK(1);
+	ok(strcmp(node->item->name + 1, "integer") == 0, "name check");
+	ok(node->item->type == YP_TINT, "type check");
+	ok(yp_int(node->data, node->data_len) == 20, "value check");
+	PARSE_CHECK(1);
+	ok(strcmp(node->item->name + 1, "string") == 0, "name check");
+	ok(node->item->type == YP_TSTR, "type check");
+	ok(strcmp(yp_str(node->data), "short") == 0, "value check");
+	PARSE_CHECK(1);
+	ok(strcmp(node->item->name + 1, "string") == 0, "name check");
+	ok(node->item->type == YP_TSTR, "type check");
+	ok(strcmp(yp_str(node->data), "long string") == 0, "value check");
 
 	/* Multi-group test. */
-	str = "multi-group:\n - id: foo\n   base64: Zm9vYmFy\nreference: foo";
-	ret = yp_set_input_string(yp, str, strlen(str));
-	ok(ret == KNOT_EOK, "set input string");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY0, "event check");
-	ok(strcmp(ctx->key0->name + 1, "multi-group") == 0, "name check");
-	ok(ctx->key0->type == YP_TGRP, "type check");
-	ok(ctx->data_len == 0, "value length check");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EID, "event check");
-	ok(strcmp(ctx->key1->name + 1, "id") == 0, "name check");
-	ok(ctx->key1->type == YP_TSTR, "type check");
-	ok(strcmp(yp_str(ctx->id), "foo") == 0, "value check");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY1, "event check");
-	ok(strcmp(ctx->key1->name + 1, "base64") == 0, "name check");
-	ok(ctx->key1->type == YP_TB64, "type check");
-	ok(memcmp(ctx->data, "foobar", ctx->data_len) == 0, "value check");
-	ret = yp_parse(yp);
-	ok(ret == KNOT_EOK, "parse");
-	ret = yp_scheme_check_parser(ctx, yp);
-	ok(ret == KNOT_EOK, "check parser");
-	ok(ctx->event == YP_EKEY0, "event check");
-	ok(strcmp(ctx->key0->name + 1, "reference") == 0, "name check");
-	ok(ctx->key0->type == YP_TREF, "type check");
-	ok(strcmp(yp_str(ctx->data), "foo") == 0, "value check");
-
-	/* Scheme find tests. */
-	const yp_item_t *i = yp_scheme_find(C_OPT, NULL, scheme);
-	ok(i != NULL, "scheme find");
-	if (i == NULL) {
-		goto skip_all;
-	}
-	ok(strcmp(i->name + 1, "option") == 0, "name check");
-	i = yp_scheme_find(C_STR, C_GRP, scheme);
-	ok(i != NULL, "scheme find");
-	if (i == NULL) {
-		goto skip_all;
-	}
-	ok(strcmp(i->name + 1, "string") == 0, "name check");
+	diag("parser multi-group test");
+	SET_INPUT_STR("multi-group:\n - id: foo\n   base64: Zm9vYmFy\nreference: foo");
+	PARSE_CHECK(0);
+	ok(strcmp(node->item->name + 1, "multi-group") == 0, "name check");
+	ok(node->item->type == YP_TGRP, "type check");
+	ok(node->data_len == 0, "value length check");
+	PARSE_CHECK(0);
+	ok(node->id_len > 0, "id check");
+	ok(strcmp(node->item->name + 1, "multi-group") == 0, "name check");
+	ok(node->item->type == YP_TGRP, "type check");
+	ok(node->data_len == 0, "value length check");
+	id = node->item->var.g.id;
+	ok(strcmp(id->name + 1, "id") == 0, "name check");
+	ok(id->type == YP_TSTR, "type check");
+	ok(strcmp(yp_str(node->id), "foo") == 0, "value check");
+	PARSE_CHECK(1);
+	id = parent->item->var.g.id;
+	ok(strcmp(parent->item->name + 1, "multi-group") == 0, "name check");
+	ok(parent->item->type == YP_TGRP, "type check");
+	ok(parent->data_len == 0, "value length check");
+	ok(strcmp(yp_str(parent->id), "foo") == 0, "value check");
+	ok(strcmp(id->name + 1, "id") == 0, "name check");
+	ok(id->type == YP_TSTR, "type check");
+	ok(strcmp(node->item->name + 1, "base64") == 0, "name check");
+	ok(node->item->type == YP_TB64, "type check");
+	ok(memcmp(node->data, "foobar", node->data_len) == 0, "value check");
+	ok(node->id_len == 0, "id length check");
+	PARSE_CHECK(0);
+	ok(strcmp(node->item->name + 1, "reference") == 0, "name check");
+	ok(node->item->type == YP_TREF, "type check");
+	ok(strcmp(yp_str(node->data), "foo") == 0, "value check");
 
 	yp_scheme_check_deinit(ctx);
 	yp_deinit(yp);
 	yp_scheme_free(scheme);
 
-skip_all:
+error_parser:
+	return 0;
+}
+
+#define STR_CHECK(depth) { \
+	ok(ret == KNOT_EOK, "check str"); \
+	ok(ctx->current == depth, "depth check"); \
+	node = &ctx->nodes[ctx->current]; \
+	parent = node->parent; \
+	}
+
+static int str_test(void) {
+	int ret;
+	yp_item_t *scheme;
+	yp_node_t *node;
+	yp_node_t *parent;
+	const yp_item_t *id;
+
+	ret = yp_scheme_copy(&scheme, static_scheme);
+	ok(ret == KNOT_EOK, "scheme copy");
+
+	yp_check_ctx_t *ctx = yp_scheme_check_init(scheme);
+	ok(ctx != NULL, "create check ctx");
+	if (ctx == NULL) {
+		goto error_str;
+	}
+
+	/* Key0 test. */
+	diag("str key0 test");
+	ret = yp_scheme_check_str(ctx, "option", "", "", "one");
+	STR_CHECK(0);
+	ok(strcmp(node->item->name + 1, "option") == 0, "name check");
+	ok(node->item->type == YP_TOPT, "type check");
+	ok(yp_opt(node->data) == 1, "value check");
+
+	/* Group test. */
+	diag("str group test");
+	ret = yp_scheme_check_str(ctx, "group", "", "", "");
+	STR_CHECK(0);
+	ok(strcmp(node->item->name + 1, "group") == 0, "name check");
+	ok(node->item->type == YP_TGRP, "type check");
+	ok(node->data_len == 0, "value length check");
+	ret = yp_scheme_check_str(ctx, "group", "integer", "", "20");
+	STR_CHECK(1);
+	ok(strcmp(node->item->name + 1, "integer") == 0, "name check");
+	ok(node->item->type == YP_TINT, "type check");
+	ok(yp_int(node->data, node->data_len) == 20, "value check");
+	ret = yp_scheme_check_str(ctx, "group", "string", "", "short");
+	STR_CHECK(1);
+	ok(strcmp(node->item->name + 1, "string") == 0, "name check");
+	ok(node->item->type == YP_TSTR, "type check");
+	ok(strcmp(yp_str(node->data), "short") == 0, "value check");
+	ret = yp_scheme_check_str(ctx, "group", "string", "", "long string");
+	STR_CHECK(1);
+	ok(strcmp(node->item->name + 1, "string") == 0, "name check");
+	ok(node->item->type == YP_TSTR, "type check");
+	ok(strcmp(yp_str(node->data), "long string") == 0, "value check");
+
+	diag("str multi-group test");
+	ret = yp_scheme_check_str(ctx, "multi-group", "", "", "");
+	STR_CHECK(0);
+	ok(strcmp(node->item->name + 1, "multi-group") == 0, "name check");
+	ok(node->item->type == YP_TGRP, "type check");
+	ok(node->data_len == 0, "value length check");
+	ret = yp_scheme_check_str(ctx, "multi-group", "", "foo", "");
+	STR_CHECK(0);
+	ok(node->id_len > 0, "id check");
+	ok(strcmp(node->item->name + 1, "multi-group") == 0, "name check");
+	ok(node->item->type == YP_TGRP, "type check");
+	ok(node->data_len == 0, "value length check");
+	id = node->item->var.g.id;
+	ok(strcmp(id->name + 1, "id") == 0, "name check");
+	ok(id->type == YP_TSTR, "type check");
+	ok(strcmp(yp_str(node->id), "foo") == 0, "value check");
+	ret = yp_scheme_check_str(ctx, "multi-group", "base64", "foo", "Zm9vYmFy");
+	STR_CHECK(1);
+	id = parent->item->var.g.id;
+	ok(strcmp(parent->item->name + 1, "multi-group") == 0, "name check");
+	ok(parent->item->type == YP_TGRP, "type check");
+	ok(parent->data_len == 0, "value length check");
+	ok(strcmp(yp_str(parent->id), "foo") == 0, "value check");
+	ok(strcmp(id->name + 1, "id") == 0, "name check");
+	ok(id->type == YP_TSTR, "type check");
+	ok(strcmp(node->item->name + 1, "base64") == 0, "name check");
+	ok(node->item->type == YP_TB64, "type check");
+	ok(memcmp(node->data, "foobar", node->data_len) == 0, "value check");
+	ok(node->id_len == 0, "id length check");
+	ret = yp_scheme_check_str(ctx, "reference", "", "", "foo");
+	STR_CHECK(0);
+	ok(strcmp(node->item->name + 1, "reference") == 0, "name check");
+	ok(node->item->type == YP_TREF, "type check");
+	ok(strcmp(yp_str(node->data), "foo") == 0, "value check");
+
+	yp_scheme_check_deinit(ctx);
+	yp_scheme_free(scheme);
+
+error_str:
+	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	plan_lazy();
+
+	scheme_find_test();
+
+	parser_test();
+
+	str_test();
+
 	return 0;
 }

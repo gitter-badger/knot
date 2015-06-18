@@ -184,12 +184,13 @@ int check_ref(
 {
 	const char *err_str = "invalid reference";
 
-	const yp_item_t *parent = args->check->key1->var.r.ref;
+	const yp_node_t *node = &args->check->nodes[args->check->current];
+	const yp_item_t *parent = node->item->var.r.ref;
 
 	// Try to find the id in the referenced category.
 	// Cannot use conf_raw_get as id is not stored in confdb directly!
 	int ret = conf_db_get(args->conf, args->txn, parent->name, NULL,
-	                      args->check->data, args->check->data_len, NULL);
+	                      node->data, node->data_len, NULL);
 	if (ret != KNOT_EOK) {
 		*args->err_str = err_str;
 	}
@@ -202,9 +203,10 @@ int check_modref(
 {
 	const char *err_str = "invalid module reference";
 
-	const yp_name_t *mod_name = (const yp_name_t *)args->check->data;
-	const uint8_t *id = args->check->data + 1 + args->check->data[0];
-	size_t id_len = args->check->data_len - 1 - args->check->data[0];
+	const yp_node_t *node = &args->check->nodes[args->check->current];
+	const yp_name_t *mod_name = (const yp_name_t *)node->data;
+	const uint8_t *id = node->data + 1 + node->data[0];
+	size_t id_len = node->data_len - 1 - node->data[0];
 
 	// Try to find the module with id.
 	// Cannot use conf_raw_get as id is not stored in confdb directly!
@@ -261,11 +263,13 @@ int include_file(
 		return KNOT_ENOMEM;
 	}
 
+	const yp_node_t *node = &args->check->nodes[args->check->current];
+
 	// Prepare absolute include path.
 	int ret;
-	if (args->check->data[0] == '/') {
+	if (node->data[0] == '/') {
 		ret = snprintf(path, max_path, "%.*s",
-		               (int)args->check->data_len, args->check->data);
+		               (int)node->data_len, node->data);
 	} else {
 		const char *file_name = args->parser->file.name != NULL ?
 		                        args->parser->file.name : "./";
@@ -277,7 +281,7 @@ int include_file(
 
 		ret = snprintf(path, max_path, "%s/%.*s",
 		               dirname(full_current_name),
-		               (int)args->check->data_len, args->check->data);
+		               (int)node->data_len, node->data);
 		free(full_current_name);
 	}
 	if (ret <= 0 || ret >= max_path) {
