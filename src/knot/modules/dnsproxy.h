@@ -40,7 +40,8 @@
 extern const yp_item_t scheme_mod_dnsproxy[];
 
 /*! \brief Module interface. */
-int dnsproxy_load(struct query_plan *plan, struct query_module *self);
+int dnsproxy_load(struct query_plan *plan, struct query_module *self,
+                  const knot_dname_t *zone);
 int dnsproxy_unload(struct query_module *self);
 
 /*! @} */

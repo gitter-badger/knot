@@ -31,7 +31,8 @@
 extern const yp_item_t scheme_mod_dnstap[];
 
 /*! \brief Module interface. */
-int dnstap_load(struct query_plan *plan, struct query_module *self);
+int dnstap_load(struct query_plan *plan, struct query_module *self,
+                const knot_dname_t *zone);
 int dnstap_unload(struct query_module *self);
 
 /*! @} */

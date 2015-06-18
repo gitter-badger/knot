@@ -342,7 +342,7 @@ int conf_activate_modules(
 		}
 
 		// Load the module.
-		int ret = mod->load(*query_plan, mod);
+		int ret = mod->load(*query_plan, mod, zone_name);
 		if (ret != KNOT_EOK) {
 			query_module_close(mod);
 			return ret;
