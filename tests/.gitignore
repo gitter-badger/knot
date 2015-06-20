@@ -22,6 +22,7 @@ hattrie
 hhash
 internal_mem
 journal
+modules/online_sign
 namedb
 net_shortwrite
 node
