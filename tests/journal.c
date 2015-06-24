@@ -48,9 +48,10 @@ static void init_soa(knot_rrset_t *rr, const uint32_t serial, const knot_dname_t
 {
 	knot_rrset_init(rr, knot_dname_copy(apex, NULL), KNOT_RRTYPE_SOA, KNOT_CLASS_IN);
 
-	assert(serial < 256);
-	uint8_t soa_data[MIN_SOA_SIZE] = { 0, 0, 0, 0, 0, serial };
+	//assert(serial < 256);
+	uint8_t soa_data[MIN_SOA_SIZE] = { 0, 0, 0, 0, 0, 0 };
 	int ret = knot_rrset_add_rdata(rr, soa_data, sizeof(soa_data), 3600, NULL);
+	knot_soa_serial_set(&rr->rrs, serial);
 	assert(ret == KNOT_EOK);
 }
 
@@ -240,7 +241,7 @@ static void test_store_load(char *jfilename)
 	ok(ret == KNOT_EOK && changesets_list_eq(&l, &k), "journal: load changesets");
 
 	int i;
-	for (i = 0; i < 2000; ++i) {
+	for (i = 0; i < 2; ++i) {
 		changesets_free(&l);
 		init_list(&l);
 		ret = journal_load_changesets(j, z.name, &l, 1);
@@ -309,16 +310,60 @@ static void test_store_load(char *jfilename)
 	journal_close(&j);
 }
 
+static void test_stress_base(size_t filesize, size_t update_size,
+                             bool reopen_per_cycle,
+                             bool reopen_per_insert,
+                             bool reopen_to_flush)
+{
+	char jfilename[256];
+	snprintf(jfilename, 256, "%s/%s", "tmp", "journal.XXXXXX");
+	mkdtemp(jfilename);
+	int i, count, ret;
+	uint8_t *apex = (uint8_t *)"\4test";
+	uint32_t serial = 0;
+	journal_t *j;
+	for (i = 0; i < 10; ++i) {
+		ret = KNOT_EOK;
+		count = 0;
+		if (reopen_per_cycle)
+			j = journal_open(jfilename, filesize);
+		for (; ret == KNOT_EOK && serial < 5000; ++serial) {
+			changeset_t ch;
+			init_random_changeset(&ch, serial, serial + 1, update_size, apex);
+			if (reopen_per_insert)
+				j = journal_open(jfilename, filesize);
+			ret = journal_store_changeset(j, &ch);
+			if (ret == KNOT_EOK)
+				++count;
+			if (reopen_per_insert)
+				journal_close(&j);
+			changeset_clear(&ch);
+
+		}
+		if (reopen_to_flush)
+			journal_close(&j);
+		ok(count > 0, "journal: pass #%d fillup run (%d inserts)", i + 1, count);
+		if (reopen_to_flush)
+			j = journal_open(jfilename, filesize);
+		journal_mark_synced(j);
+		if (reopen_per_cycle)
+			journal_close(&j);
+	}
+	char cmd[256];
+	snprintf(cmd, sizeof(cmd), "rm -rf %s", jfilename);
+	system(cmd);
+}
+
 /*! \brief Test behavior when writing to jurnal and flushing it. */
 static void test_stress(char * jfilename)
 {
 	uint8_t *apex = (uint8_t *)"\4test";
-	const size_t filesize = 1 * 1024 * 1024;
+	const size_t filesize = 20 * 1024 * 1024;
 	journal_t *j = journal_open(jfilename, filesize);
 	int ret = KNOT_EOK;
 	uint32_t serial = 0;
-	size_t update_size = 4;
-	for (; ret == KNOT_EOK && serial < 250; ++serial) {
+	size_t update_size = 300;
+	for (; ret == KNOT_EOK && serial < 5000; ++serial) {
 		changeset_t ch;
 		init_random_changeset(&ch, serial, serial + 1, update_size, apex);
 		update_size *= 1.5;
@@ -327,23 +372,39 @@ static void test_stress(char * jfilename)
 		journal_mark_synced(j);
 	}
 	ok(ret == KNOT_EBUSY, "journal: does not overfill under load");
+	journal_close(&j);
 	
-	update_size /= 6;
-	ret = KNOT_EOK;
-	for (; ret == KNOT_EOK && serial < 250; ++serial) {
-		changeset_t ch;
-		init_random_changeset(&ch, serial, serial + 1, update_size, apex);
-		ret = journal_store_changeset(j, &ch);
-		changeset_clear(&ch);
-	}
-	
-	journal_mark_synced(j);
+	printf("stress test: small data, reopen per cycle, reopen for flush\n");
+	test_stress_base(filesize, 40,    true, false,  true);
+	printf("stress test: small data, reopen per cycle\n");
+	test_stress_base(filesize, 40,    true, false, false);
+	printf("stress test: small data, reopen per insert, reopen for flush\n");
+	test_stress_base(filesize, 40,   false,  true,  true);
+	printf("stress test: small data, reopen per insert\n");
+	test_stress_base(filesize, 40,   false,  true, false);
+	printf("stress test: medium data, reopen per cycle, reopen for flush\n");
+	test_stress_base(filesize, 400,   true, false,  true);
+	printf("stress test: medium data, reopen per cycle\n");
+	test_stress_base(filesize, 400,   true, false, false);
+	printf("stress test: medium data, reopen per insert, reopen for flush\n");
+	test_stress_base(filesize, 400,  false,  true,  true);
+	printf("stress test: medium data, reopen per insert\n");
+	test_stress_base(filesize, 400,  false,  true, false);
+	printf("stress test: large data, reopen per cycle, reopen for flush\n");
+	test_stress_base(filesize, 4000,  true, false,  true);
+	printf("stress test: large data, reopen per cycle\n");
+	test_stress_base(filesize, 4000,  true, false, false);
+	printf("stress test: large data, reopen per insert, reopen for flush\n");
+	test_stress_base(filesize, 4000, false,  true,  true);
+	printf("stress test: large data, reopen per insert\n");
+	test_stress_base(filesize, 4000, false,  true, false);
 	
 	changeset_t ch;
 	init_random_changeset(&ch, serial, serial + 1, 128, apex);
+	j = journal_open(jfilename, filesize);
 	ret = journal_store_changeset(j, &ch);
 	changeset_clear(&ch);
-	ok(ret == KNOT_EOK, "journal: keeps working after fillup.");
+	ok(ret == KNOT_EOK, "journal: keeps working after repeated fillup.");
 	
 	journal_close(&j);
 }

@@ -93,7 +93,7 @@ class Server(object):
         self.disable_notify = None
         self.max_conn_idle = None
         self.zonefile_sync = None
-        self.ixfr_fslimit = None
+        self.ixfr_fslimit = 10000000
 
         self.inquirer = None
 
