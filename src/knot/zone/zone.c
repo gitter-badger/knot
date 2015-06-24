@@ -123,7 +123,6 @@ int zone_change_store(zone_t *zone, changeset_t *change)
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
-	free(journal_file);
 
 	pthread_mutex_lock(&zone->journal_lock);
 	ret = journal_store_changeset(zone->journal, change);
@@ -131,14 +130,18 @@ int zone_change_store(zone_t *zone, changeset_t *change)
 		log_zone_notice(zone->name, "journal is full, flushing");
 
 		/* Transaction rolled back, journal released, we may flush. */
+		zone_deinit_journal(zone);
 		ret = zone_flush_journal(zone);
+		zone_init_journal(zone, journal_file, ixfr_fslimit);
 		if (ret == KNOT_EOK) {
 			ret = journal_store_changeset(zone->journal, change);
 		}
 	}
 	pthread_mutex_unlock(&zone->journal_lock);
+	free(journal_file);
 
 	if (ret != KNOT_EOK) {
+		log_zone_error(zone->name, "journal is too small, cannot insert");
 		zone_deinit_journal(zone);
 		return ret;
 	}
@@ -156,7 +159,6 @@ int zone_changes_store(zone_t *zone, list_t *chgs)
 	char *journal_file = conf_journalfile(conf(), zone->name);
 
 	int ret = zone_init_journal(zone, journal_file, ixfr_fslimit);
-	free(journal_file);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
@@ -167,13 +169,16 @@ int zone_changes_store(zone_t *zone, list_t *chgs)
 		log_zone_notice(zone->name, "journal is full, flushing");
 
 		/* Transaction rolled back, journal released, we may flush. */
+		zone_deinit_journal(zone);
 		ret = zone_flush_journal(zone);
+		zone_init_journal(zone, journal_file, ixfr_fslimit);
 		if (ret == KNOT_EOK) {
 			ret = journal_store_changesets(zone->journal, chgs);
 		}
 
 	}
 	pthread_mutex_unlock(&zone->journal_lock);
+	free(journal_file);
 
 	if (ret != KNOT_EOK) {
 		zone_deinit_journal(zone);
@@ -308,12 +313,23 @@ int zone_flush_journal(zone_t *zone)
 	zone->zonefile_mtime = st.st_mtime;
 	zone->zonefile_serial = serial_to;
 
-	/* TODO: rework the API, add error checks. */
-	zone_init_journal(zone, journal_file, ixfr_fslimit);
-	journal_mark_synced(zone->journal);
-	zone_deinit_journal(zone);
-
+	/* TODO: rework the API. */
+	ret = zone_init_journal(zone, journal_file, ixfr_fslimit);
 	free(journal_file);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	ret = journal_mark_synced(zone->journal);
+	if (ret != KNOT_EOK) {
+		zone_deinit_journal(zone);
+		return ret;
+	}
+
+	ret = zone_deinit_journal(zone);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
 
 	/* Trim extra heap. */
 	mem_trim();
