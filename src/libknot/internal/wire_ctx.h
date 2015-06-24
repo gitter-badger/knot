@@ -22,6 +22,7 @@
 
 #include "errcode.h"
 #include "libknot/rdata.h"
+#include <endian.h>
 
 // For unit testing replace assert macro
 #ifdef UNIT_TESTING
