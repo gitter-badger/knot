@@ -84,24 +84,36 @@ static int cmd_memstats(cmd_args_t *args);
 static int cmd_signzone(cmd_args_t *args);
 static int cmd_import(cmd_args_t *args);
 static int cmd_export(cmd_args_t *args);
+static int cmd_conf_edit(cmd_args_t *args);
+static int cmd_conf_commit(cmd_args_t *args);
+static int cmd_conf_abort(cmd_args_t *args);
+static int cmd_conf_set(cmd_args_t *args);
+static int cmd_conf_del(cmd_args_t *args);
+static int cmd_conf_get(cmd_args_t *args);
 
 /*! \brief Table of remote commands. */
 knot_cmd_t knot_cmd_tbl[] = {
-	{&cmd_stop,       "stop",       "",            "Stop server."},
-	{&cmd_reload,     "reload",     "[<zone>...]", "Reload particular zones or reload whole\n"
-	                "                                configuration and changed zones."},
-	{&cmd_refresh,    "refresh",    "[<zone>...]", "Refresh slave zones. Flag '-f' forces retransfer\n"
-	                "                                (zone(s) must be specified)."},
-	{&cmd_flush,      "flush",      "[<zone>...]", "Flush journal and update zone files."},
-	{&cmd_status,     "status",     "",            "Check if server is running."},
-	{&cmd_zonestatus, "zonestatus", "[<zone>...]", "Show status of configured zones."},
-	{&cmd_checkconf,  "checkconf",  "",            "Check current server configuration."},
-	{&cmd_checkzone,  "checkzone",  "[<zone>...]", "Check zones."},
-	{&cmd_memstats,   "memstats",   "[<zone>...]", "Estimate memory use for zones."},
-	{&cmd_signzone,   "signzone",   "<zone>...",   "Sign zones with available DNSSEC keys."},
-	{&cmd_import,     "import",     "<filename>",  "Import configuration database."},
-	{&cmd_export,     "export",     "<filename>",  "Export configuration database."},
-	{NULL, NULL, NULL, NULL}
+	{ &cmd_stop,        "stop",        "",            "Stop server." },
+	{ &cmd_reload,      "reload",      "[<zone>...]", "Reload particular zones or reload whole\n"
+	                  "                                 configuration and changed zones." },
+	{ &cmd_refresh,     "refresh",     "[<zone>...]", "Refresh slave zones. Flag '-f' forces retransfer\n"
+	                  "                                 (zone(s) must be specified)." },
+	{ &cmd_flush,       "flush",       "[<zone>...]", "Flush journal and update zone files." },
+	{ &cmd_status,      "status",      "",            "Check if server is running." },
+	{ &cmd_zonestatus,  "zonestatus",  "[<zone>...]", "Show status of configured zones." },
+	{ &cmd_checkconf,   "checkconf",   "",            "Check current server configuration." },
+	{ &cmd_checkzone,   "checkzone",   "[<zone>...]", "Check zones." },
+	{ &cmd_memstats,    "memstats",    "[<zone>...]", "Estimate memory use for zones." },
+	{ &cmd_signzone,    "signzone",    "<zone>...",   "Sign zones with available DNSSEC keys." },
+	{ &cmd_import,      "import",      "<filename>",  "Import configuration DB." },
+	{ &cmd_export,      "export",      "<filename>",  "Export configuration DB." },
+	{ &cmd_conf_edit,   "conf-edit",   "",            "Begin writing configuration DB transaction." },
+	{ &cmd_conf_commit, "conf-commit", "",            "Commit configuration DB transaction." },
+	{ &cmd_conf_abort,  "conf-abort",  "",            "Rollback configuration DB transaction." },
+	{ &cmd_conf_set,    "conf-set",    "<item> [<data>...]", "Set item(s) in configuration DB." },
+	{ &cmd_conf_del,    "conf-del",    "<item> [<data>...]", "Delete item(s) from configuration DB." },
+	{ &cmd_conf_get,    "conf-get",    "<item> [active]",    "Get item(s) from configuration DB." },
+	{ NULL }
 };
 
 /*! \brief Print help. */
@@ -126,7 +138,7 @@ void help(void)
 	printf("\nActions:\n");
 	knot_cmd_t *c = knot_cmd_tbl;
 	while (c->name != NULL) {
-		printf(" %-10s %-18s %s\n", c->name, c->params, c->desc);
+		printf(" %-11s %-17s %s\n", c->name, c->params, c->desc);
 		++c;
 	}
 	printf("\nIf optional <zone> parameter is not specified, command is applied to all zones.\n\n");
@@ -605,6 +617,72 @@ static int cmd_export(cmd_args_t *args)
 	}
 
 	return conf_export(conf(), args->argv[0], YP_SNONE);
+}
+
+static int cmd_conf_edit(cmd_args_t *args)
+{
+	if (args->argc > 0) {
+		printf("command does not take arguments\n");
+		return KNOT_EINVAL;
+	}
+
+	return cmd_remote(args->addr, args->key, "conf-edit", KNOT_RRTYPE_TXT,
+	                  0, NULL);
+}
+
+static int cmd_conf_commit(cmd_args_t *args)
+{
+	if (args->argc > 0) {
+		printf("command does not take arguments\n");
+		return KNOT_EINVAL;
+	}
+
+	return cmd_remote(args->addr, args->key, "conf-commit", KNOT_RRTYPE_TXT,
+	                  0, NULL);
+}
+
+static int cmd_conf_abort(cmd_args_t *args)
+{
+	if (args->argc > 0) {
+		printf("command does not take arguments\n");
+		return KNOT_EINVAL;
+	}
+
+	return cmd_remote(args->addr, args->key, "conf-abort", KNOT_RRTYPE_TXT,
+	                  0, NULL);
+}
+
+static int cmd_conf_set(cmd_args_t *args)
+{
+	if (args->argc < 1 || args->argc > 2) {
+		printf("command takes one or two arguments\n");
+		return KNOT_EINVAL;
+	}
+
+	return cmd_remote(args->addr, args->key, "conf-set", KNOT_RRTYPE_TXT,
+	                  args->argc, args->argv);
+}
+
+static int cmd_conf_del(cmd_args_t *args)
+{
+	if (args->argc < 1 || args->argc > 2) {
+		printf("command takes one or two arguments\n");
+		return KNOT_EINVAL;
+	}
+
+	return cmd_remote(args->addr, args->key, "conf-del", KNOT_RRTYPE_TXT,
+	                  args->argc, args->argv);
+}
+
+static int cmd_conf_get(cmd_args_t *args)
+{
+	if (args->argc < 1 || args->argc > 2) {
+		printf("command takes one or two arguments\n");
+		return KNOT_EINVAL;
+	}
+
+	return cmd_remote(args->addr, args->key, "conf-get", KNOT_RRTYPE_TXT,
+	                  args->argc, args->argv);
 }
 
 static int cmd_checkconf(cmd_args_t *args)
