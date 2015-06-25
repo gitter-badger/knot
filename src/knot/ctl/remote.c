@@ -618,7 +618,8 @@ int remote_parse(knot_pkt_t *pkt)
 	return knot_pkt_parse(pkt, 0);
 }
 
-static int remote_send_chunk(int c, knot_pkt_t *query, const char *d, uint16_t len)
+static int remote_send_chunk(int c, knot_pkt_t *query, const char *d, uint16_t len,
+                             int index)
 {
 	knot_pkt_t *resp = knot_pkt_new(NULL, KNOT_WIRE_MAX_PKTSIZE, &query->mm);
 	if (!resp) {
@@ -642,7 +643,7 @@ static int remote_send_chunk(int c, knot_pkt_t *query, const char *d, uint16_t l
 		goto failed;
 	}
 
-	ret = remote_create_txt(&rr, d, len);
+	ret = remote_create_txt(&rr, d, len, index);
 	assert(ret == KNOT_EOK);
 
 	ret = knot_pkt_put(resp, 0, &rr, KNOT_PF_FREE);
@@ -760,15 +761,17 @@ int remote_answer(int sock, server_t *s, knot_pkt_t *pkt)
 		strlcpy(args.response, knot_strerror(ret), args.response_max);
 	}
 
+	int index = 0;
 	unsigned p = 0;
 	size_t chunk = 16384;
 	for (; p + chunk < args.response_size; p += chunk) {
-		remote_send_chunk(sock, pkt, args.response + p, chunk);
+		remote_send_chunk(sock, pkt, args.response + p, chunk, index);
+		index++;
 	}
 
 	unsigned r = args.response_size - p;
 	if (r > 0) {
-		remote_send_chunk(sock, pkt, args.response + p, r);
+		remote_send_chunk(sock, pkt, args.response + p, r, index);
 	}
 
 	cmdargs_deinit(&args);
@@ -1012,63 +1015,63 @@ int remote_query_sign(uint8_t *wire, size_t *size, size_t maxlen,
 	return ret;
 }
 
-int remote_build_rr(knot_rrset_t *rr, const char *k, uint16_t t)
+int remote_build_rr(knot_rrset_t *rr, const char *owner, uint16_t type)
 {
-	if (!k) {
+	if (!rr || !owner) {
 		return KNOT_EINVAL;
 	}
 
 	/* Assert K is FQDN. */
-	knot_dname_t *key = knot_dname_from_str_alloc(k);
-	if (key == NULL) {
+	knot_dname_t *name = knot_dname_from_str_alloc(owner);
+	if (name == NULL) {
 		return KNOT_ENOMEM;
 	}
 
 	/* Init RRSet. */
-	knot_rrset_init(rr, key, t, KNOT_CLASS_CH);
+	knot_rrset_init(rr, name, type, KNOT_CLASS_CH);
 
 	return KNOT_EOK;
 }
 
-int remote_create_txt(knot_rrset_t *rr, const char *v, size_t v_len)
+int remote_create_txt(knot_rrset_t *rr, const char *str, size_t str_len)
 {
-	if (!rr || !v) {
+	if (!rr || !str) {
 		return KNOT_EINVAL;
 	}
 
 	/* Number of chunks. */
 	const size_t K = 255;
-	unsigned chunks = v_len / K + 1;
-	uint8_t raw[v_len + chunks];
-	memset(raw, 0, v_len + chunks);
+	unsigned chunks = str_len / K + 1;
+	uint8_t raw[str_len + chunks];
+	memset(raw, 0, str_len + chunks);
 
 	/* Write TXT item. */
 	unsigned p = 0;
 	size_t off = 0;
-	if (v_len > K) {
-		for (; p + K < v_len; p += K) {
+	if (str_len > K) {
+		for (; p + K < str_len; p += K) {
 			raw[off++] = (uint8_t)K;
-			memcpy(raw + off, v + p, K);
+			memcpy(raw + off, str + p, K);
 			off += K;
 		}
 	}
-	unsigned r = v_len - p;
+	unsigned r = str_len - p;
 	if (r > 0) {
 		raw[off++] = (uint8_t)r;
-		memcpy(raw + off, v + p, r);
+		memcpy(raw + off, str + p, r);
 	}
 
-	return knot_rrset_add_rdata(rr, raw, v_len + chunks, 0, NULL);
+	return knot_rrset_add_rdata(rr, raw, str_len + chunks, 0, NULL);
 }
 
-int remote_create_ns(knot_rrset_t *rr, const char *d)
+int remote_create_ns(knot_rrset_t *rr, const char *name)
 {
-	if (!rr || !d) {
+	if (!rr || !name) {
 		return KNOT_EINVAL;
 	}
 
 	/* Create dname. */
-	knot_dname_t *dn = knot_dname_from_str_alloc(d);
+	knot_dname_t *dn = knot_dname_from_str_alloc(name);
 	if (!dn) {
 		return KNOT_ERROR;
 	}
@@ -1081,24 +1084,17 @@ int remote_create_ns(knot_rrset_t *rr, const char *d)
 	return result;
 }
 
-int remote_print_txt(const knot_rrset_t *rr, uint16_t i)
+int remote_print_txt(const knot_rrset_t *rr, uint16_t pos)
 {
-	if (!rr || rr->rrs.rr_count < 1) {
-		return -1;
+	if (!rr) {
+		return KNOT_EINVAL;
 	}
 
-	/* Packet parser should have already checked the packet validity. */
-	char buf[256];
-	uint16_t parsed = 0;
-	const knot_rdata_t *rdata = knot_rdataset_at(&rr->rrs, i);
-	uint8_t *p = knot_rdata_data(rdata);
-	uint16_t rlen = knot_rdata_rdlen(rdata);
-	while (parsed < rlen) {
-		memcpy(buf, (const char*)(p+1), *p);
-		buf[*p] = '\0';
-		printf("%s", buf);
-		parsed += *p + 1;
-		p += *p + 1;
+	size_t count = knot_txt_count(&rr->rrs, pos);
+	for (size_t i = 0; i < count; i++) {
+		const uint8_t *rdata = knot_txt_data(&rr->rrs, pos, i);
+		printf("%.*s", (int)rdata[0], rdata + 1);
 	}
+
 	return KNOT_EOK;
 }

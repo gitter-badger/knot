@@ -146,7 +146,6 @@ void help(void)
 
 static int cmd_remote_print_reply(const knot_rrset_t *rr)
 {
-	/* Process first RRSet in data section. */
 	if (rr->type != KNOT_RRTYPE_TXT) {
 		return KNOT_EMALF;
 	}
@@ -227,14 +226,14 @@ static int cmd_remote(struct sockaddr_storage *addr, knot_tsig_key_t *key,
 			knot_pkt_free(&pkt);
 			return 1;
 		}
-		for (int i = 0; i < argc; ++i) {
+		for (uint16_t i = 0; i < argc; ++i) {
 			switch(rrt) {
 			case KNOT_RRTYPE_NS:
 				remote_create_ns(&rr, argv[i]);
 				break;
 			case KNOT_RRTYPE_TXT:
 			default:
-				remote_create_txt(&rr, argv[i], strlen(argv[i]));
+				remote_create_txt(&rr, argv[i], strlen(argv[i]), i);
 				break;
 			}
 		}
