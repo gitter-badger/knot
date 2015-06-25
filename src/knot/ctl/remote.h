@@ -170,10 +170,12 @@ int remote_build_rr(knot_rrset_t *rr, const char *owner, uint16_t type);
  * \param rr Output rrset.
  * \param str Text string.
  * \param str_len Text string length.
+ * \param index Rdata index (ensures correct argument position).
  *
  * \return KNOT_E*.
  */
-int remote_create_txt(knot_rrset_t *rr, const char *str, size_t str_len);
+int remote_create_txt(knot_rrset_t *rr, const char *str, size_t str_len,
+                      uint16_t index);
 
 /*!
  * \brief Create a NS rdata.
@@ -194,5 +196,16 @@ int remote_create_ns(knot_rrset_t *rr, const char *name);
  * \return KNOT_E*
  */
 int remote_print_txt(const knot_rrset_t *rrset, uint16_t pos);
+
+/*!
+ * \brief Extracts TXT rdata into buffer.
+ *
+ * \param rrset TXT rrset.
+ * \param pos Rdata position in the rrset.
+ * \param out_len Output rdata blob length (optional).
+ *
+ * \return Rdata blob or NULL.
+ */
+uint8_t *remote_get_txt(const knot_rrset_t *rr, uint16_t pos, size_t *out_len);
 
 /*! @} */

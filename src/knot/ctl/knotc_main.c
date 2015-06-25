@@ -653,8 +653,8 @@ static int cmd_conf_abort(cmd_args_t *args)
 
 static int cmd_conf_set(cmd_args_t *args)
 {
-	if (args->argc < 1 || args->argc > 2) {
-		printf("command takes one or two arguments\n");
+	if (args->argc < 1 || args->argc > 255) {
+		printf("command takes one or more arguments\n");
 		return KNOT_EINVAL;
 	}
 
@@ -664,8 +664,8 @@ static int cmd_conf_set(cmd_args_t *args)
 
 static int cmd_conf_del(cmd_args_t *args)
 {
-	if (args->argc < 1 || args->argc > 2) {
-		printf("command takes one or two arguments\n");
+	if (args->argc < 1 || args->argc > 255) {
+		printf("command takes one or more arguments\n");
 		return KNOT_EINVAL;
 	}
 

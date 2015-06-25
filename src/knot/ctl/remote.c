@@ -23,6 +23,7 @@
 #include "knot/common/fdset.h"
 #include "knot/common/log.h"
 #include "knot/conf/conf.h"
+#include "knot/conf/edit.h"
 #include "knot/ctl/remote.h"
 #include "knot/dnssec/zone-sign.h"
 #include "knot/dnssec/zone-nsec.h"
@@ -117,18 +118,30 @@ static int remote_c_status(server_t *s, remote_cmdargs_t *a);
 static int remote_c_zonestatus(server_t *s, remote_cmdargs_t *a);
 static int remote_c_flush(server_t *s, remote_cmdargs_t *a);
 static int remote_c_signzone(server_t *s, remote_cmdargs_t *a);
+static int remote_c_conf_edit(server_t *s, remote_cmdargs_t *a);
+static int remote_c_conf_commit(server_t *s, remote_cmdargs_t *a);
+static int remote_c_conf_abort(server_t *s, remote_cmdargs_t *a);
+static int remote_c_conf_set(server_t *s, remote_cmdargs_t *a);
+static int remote_c_conf_del(server_t *s, remote_cmdargs_t *a);
+static int remote_c_conf_get(server_t *s, remote_cmdargs_t *a);
 
 /*! \brief Table of remote commands. */
 struct remote_cmd remote_cmd_tbl[] = {
-	{ "stop",      &remote_c_stop },
-	{ "reload",    &remote_c_reload },
-	{ "refresh",   &remote_c_refresh },
-	{ "retransfer",&remote_c_retransfer },
-	{ "status",    &remote_c_status },
-	{ "zonestatus",&remote_c_zonestatus },
-	{ "flush",     &remote_c_flush },
-	{ "signzone",  &remote_c_signzone },
-	{ NULL,        NULL }
+	{ "stop",        &remote_c_stop },
+	{ "reload",      &remote_c_reload },
+	{ "refresh",     &remote_c_refresh },
+	{ "retransfer",  &remote_c_retransfer },
+	{ "status",      &remote_c_status },
+	{ "zonestatus",  &remote_c_zonestatus },
+	{ "flush",       &remote_c_flush },
+	{ "signzone",    &remote_c_signzone },
+	{ "conf-edit",   &remote_c_conf_edit },
+	{ "conf-commit", &remote_c_conf_commit },
+	{ "conf-abort",  &remote_c_conf_abort },
+	{ "conf-set",    &remote_c_conf_set },
+	{ "conf-del",    &remote_c_conf_del },
+	{ "conf-get",    &remote_c_conf_get },
+	{ NULL }
 };
 
 /* Private APIs. */
@@ -491,6 +504,201 @@ static int remote_c_signzone(server_t *s, remote_cmdargs_t *a)
 		/* Resign specific zones. */
 		remote_rdata_apply(s, a, remote_zone_sign);
 		rcu_read_unlock();
+	}
+
+	return KNOT_CTL_ACCEPTED;
+}
+
+/*!
+ * \brief Remote command 'conf-edit' handler.
+ */
+static int remote_c_conf_edit(server_t *s, remote_cmdargs_t *a)
+{
+	UNUSED(s);
+	UNUSED(a);
+	dbg_server("remote: %s\n", __func__);
+
+	return conf_edit_start();
+}
+
+/*!
+ * \brief Remote command 'conf-commit' handler.
+ */
+static int remote_c_conf_commit(server_t *s, remote_cmdargs_t *a)
+{
+	UNUSED(a);
+	dbg_server("remote: %s\n", __func__);
+
+	int ret = conf_edit_commit();
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	return server_reload(s, NULL);
+}
+
+/*!
+ * \brief Remote command 'conf-abort' handler.
+ */
+static int remote_c_conf_abort(server_t *s, remote_cmdargs_t *a)
+{
+	UNUSED(s);
+	UNUSED(a);
+	dbg_server("remote: %s\n", __func__);
+
+	return conf_edit_abort();
+}
+
+/*!
+ * \brief Parse config key path key0[id].key1.
+ */
+static int parse_conf_key(char *key, char **key0, char **id, char **key1)
+{
+	// Get key0.
+	char *_key0 = key;
+
+	// Check for id.
+	char *_id = strchr(key, '[');
+	if (_id != NULL) {
+		// Separate key0 and id.
+		*_id++ = '\0';
+
+		// Check for id end.
+		char *id_end = _id;
+		while ((id_end = strchr(id_end, ']')) != NULL) {
+			// Check for escaped character.
+			if (*(id_end - 1) != '\\') {
+				break;
+			}
+			id_end++;
+		}
+
+		// Check for unclosed id.
+		if (id_end == NULL) {
+			return KNOT_EINVAL;
+		}
+
+		// Separate id and key1.
+		*id_end = '\0';
+
+		key = id_end + 1;
+
+		// Key1 or nothing must follow.
+		if (*key != '.' && *key != '\0') {
+			return KNOT_EINVAL;
+		}
+	}
+
+	// Check for key1.
+	char *_key1 = strchr(key, '.');
+	if (_key1 != NULL) {
+		// Separate key0/id and key1.
+		*_key1++ = '\0';
+
+		if (*_key1 == '\0') {
+			return KNOT_EINVAL;
+		}
+	}
+
+	*key0 = _key0;
+	*key1 = _key1;
+	*id = _id;
+
+	return KNOT_EOK;
+}
+
+/*!
+ * \brief Remote command 'conf-set' handler.
+ */
+static int remote_c_conf_set(server_t *s, remote_cmdargs_t *a)
+{
+	UNUSED(s);
+	dbg_server("remote: %s\n", __func__);
+
+	if (a->argc < 1 || a->argc > 255) {
+		return KNOT_EINVAL;
+	}
+
+	char *key = (char *)remote_get_txt(&a->arg[0], 0, NULL);
+
+	// Split key path.
+	char *key0, *key1, *id;
+	int ret = parse_conf_key(key, &key0, &id, &key1);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	// Add item with no data.
+	if (a->argc == 1) {
+		ret = conf_edit_set(key0, key1, id, NULL);
+	}
+
+	// Add item with specified data.
+	for (int i = 1; i < a->argc; i++) {
+		char *data = (char *)remote_get_txt(&a->arg[i], 0, NULL);
+		ret = conf_edit_set(key0, key1, id, data);
+		free(data);
+		if (ret != KNOT_EOK) {
+			break;
+		}
+	}
+
+	free(key);
+
+	return ret;
+}
+
+/*!
+ * \brief Remote command 'conf-del' handler.
+ */
+static int remote_c_conf_del(server_t *s, remote_cmdargs_t *a)
+{
+	UNUSED(s);
+	dbg_server("remote: %s\n", __func__);
+
+	if (a->argc < 1 || a->argc > 255) {
+		return KNOT_EINVAL;
+	}
+
+	char *key = (char *)remote_get_txt(&a->arg[0], 0, NULL);
+
+	// Split key path.
+	char *key0, *key1, *id;
+	int ret = parse_conf_key(key, &key0, &id, &key1);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	// Delete item with no data.
+	if (a->argc == 1) {
+		ret = conf_edit_del(key0, key1, id, NULL);
+	}
+
+	// Delete specified data.
+	for (int i = 1; i < a->argc; i++) {
+		char *data = (char *)remote_get_txt(&a->arg[i], 0, NULL);
+		ret = conf_edit_del(key0, key1, id, data);
+		free(data);
+		if (ret != KNOT_EOK) {
+			break;
+		}
+	}
+
+	free(key);
+
+	return ret;
+}
+
+/*!
+ * \brief Remote command 'conf-get' handler.
+ */
+static int remote_c_conf_get(server_t *s, remote_cmdargs_t *a)
+{
+	UNUSED(s);
+	dbg_server("remote: %s\n", __func__);
+
+	if (a->argc < 1 || a->argc > 2) {
+		return KNOT_EINVAL;
 	}
 
 	return KNOT_CTL_ACCEPTED;
@@ -1033,35 +1241,50 @@ int remote_build_rr(knot_rrset_t *rr, const char *owner, uint16_t type)
 	return KNOT_EOK;
 }
 
-int remote_create_txt(knot_rrset_t *rr, const char *str, size_t str_len)
+int remote_create_txt(knot_rrset_t *rr, const char *str, size_t str_len,
+                      uint16_t index)
 {
 	if (!rr || !str) {
 		return KNOT_EINVAL;
 	}
 
-	/* Number of chunks. */
+	/* Maximal chunk size. */
 	const size_t K = 255;
-	unsigned chunks = str_len / K + 1;
-	uint8_t raw[str_len + chunks];
-	memset(raw, 0, str_len + chunks);
+	/* Number of chunks (ceiling operation). */
+	unsigned chunks = (str_len + K - 1)/ K;
+	/* Total raw chunk length. */
+	const size_t raw_len = sizeof(uint8_t) + sizeof(index) + str_len + chunks;
 
-	/* Write TXT item. */
-	unsigned p = 0;
-	size_t off = 0;
-	if (str_len > K) {
-		for (; p + K < str_len; p += K) {
-			raw[off++] = (uint8_t)K;
-			memcpy(raw + off, str + p, K);
-			off += K;
-		}
-	}
-	unsigned r = str_len - p;
-	if (r > 0) {
-		raw[off++] = (uint8_t)r;
-		memcpy(raw + off, str + p, r);
+	uint8_t raw[raw_len];
+	memset(raw, 0, raw_len);
+
+	uint8_t *out = raw;
+	const char *in = str;
+
+	/* Write index chunk. */
+	*out++ = sizeof(index);
+	wire_write_u16(out, index);
+	out += sizeof(index);
+
+	/* Write leading full chunks. */
+	for (size_t i = 0; i < chunks - 1; i++) {
+		/* Maximal chunk length. */
+		*out++ = (uint8_t)K;
+		/* Data chunk. */
+		memcpy(out, in, K);
+		out += K;
+		in += K;
 	}
 
-	return knot_rrset_add_rdata(rr, raw, str_len + chunks, 0, NULL);
+	/* Write last chunk. */
+	const size_t rest = str + str_len - in;
+	assert(rest <= K);
+	/* Last chunk length. */
+	*out++ = (uint8_t)rest;
+	/* Last data chunk. */
+	memcpy(out, in, rest);
+
+	return knot_rrset_add_rdata(rr, raw, raw_len, 0, NULL);
 }
 
 int remote_create_ns(knot_rrset_t *rr, const char *name)
@@ -1097,4 +1320,36 @@ int remote_print_txt(const knot_rrset_t *rr, uint16_t pos)
 	}
 
 	return KNOT_EOK;
+}
+
+uint8_t *remote_get_txt(const knot_rrset_t *rr, uint16_t pos, size_t *out_len)
+{
+	if (!rr) {
+		return NULL;
+	}
+
+	// The buffer will be slightly bigger (including string lengths).
+	size_t buf_len = knot_rdata_rdlen(knot_rdataset_at(&rr->rrs, pos));
+	uint8_t *buf = malloc(buf_len);
+	if (buf == NULL) {
+		return NULL;
+	}
+
+	size_t len = 0;
+
+	size_t count = knot_txt_count(&rr->rrs, pos);
+	for (size_t i = 1; i < count; i++) {
+		const uint8_t *rdata = knot_txt_data(&rr->rrs, pos, i);
+		memcpy(buf + len, rdata + 1, rdata[0]);
+		len += rdata[0];
+	}
+
+	// There is always at least one free byte.
+	buf[len] = '\0';
+
+	if (out_len != NULL) {
+		*out_len = len;
+	}
+
+	return buf;
 }
