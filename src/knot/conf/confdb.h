@@ -61,6 +61,19 @@ int conf_db_set(
 	yp_check_ctx_t *ctx
 );
 
+int conf_db_del(
+	conf_t *conf,
+	namedb_txn_t *txn,
+	yp_check_ctx_t *ctx
+);
+
+int conf_db_get(
+	conf_t *conf,
+	namedb_txn_t *txn,
+	yp_check_ctx_t *ctx,
+	conf_val_t *out
+);
+
 int conf_db_raw_get(
 	conf_t *conf,
 	namedb_txn_t *txn,

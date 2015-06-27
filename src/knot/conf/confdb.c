@@ -178,29 +178,28 @@ int conf_db_code(
 	return KNOT_EOK;
 }
 
-static bool new_data(
+static uint8_t *find_data(
 	const namedb_val_t *new,
 	const namedb_val_t *current)
 {
-	uint8_t *d = current->data;
-	size_t len = 0;
+	uint8_t *pos = current->data;
+	uint8_t *end = pos + current->len;
 
 	// Loop over the data array. Each item has 2B prefix.
-	while (len < current->len) {
+	while (pos < end) {
 		uint16_t prefix;
-		memcpy(&prefix, d + len, sizeof(prefix));
+		memcpy(&prefix, pos, sizeof(prefix));
 		prefix = le16toh(prefix);
-		len += sizeof(prefix);
 
 		// Check for the same data.
 		if (prefix == new->len &&
-		    memcmp(d + len, new->data, new->len) == 0) {
-			return false;
+		    memcmp(pos + sizeof(prefix), new->data, new->len) == 0) {
+			return pos;
 		}
-		len += prefix;
+		pos += sizeof(prefix) + prefix;
 	}
 
-	return true;
+	return NULL;
 }
 
 static int db_insert(
@@ -222,7 +221,7 @@ static int db_insert(
 			d.len = 0;
 		} else if (ret == KNOT_EOK) {
 			// Check for duplicate data.
-			if (!new_data(data, &d)) {
+			if (find_data(data, &d) != NULL) {
 				return KNOT_EOK;
 			}
 		} else {
@@ -348,6 +347,177 @@ int conf_db_set(
 	}
 
 	return KNOT_EOK;
+}
+
+static int db_delete(
+	conf_t *conf,
+	namedb_txn_t *txn,
+	namedb_val_t *key,
+	namedb_val_t *data,
+	bool multi)
+{
+	// Remove the item.
+	if (!multi || data->len == 0) {
+		return conf->api->del(txn, key);
+	} else {
+		namedb_val_t d;
+
+		int ret = conf->api->find(txn, key, &d, 0);
+		if (ret != KNOT_ENOENT) {
+			return ret;
+		}
+
+		// Check if the data exists.
+		uint8_t *pos = find_data(data, &d);
+		if (pos == NULL) {
+			return KNOT_ENOENT;
+		}
+
+		// Prepare buffer for all data.
+		size_t total_len = d.len - sizeof(uint16_t) - data->len;
+		if (total_len  == 0) {
+			return conf->api->del(txn, key);
+		}
+
+		uint8_t *new_data = malloc(total_len);
+		if (new_data == NULL) {
+			return KNOT_ENOMEM;
+		}
+
+		size_t new_len = 0;
+
+		// Copy leading data block.
+		assert(pos >= (uint8_t *)d.data);
+		size_t head_len = pos - (uint8_t *)d.data;
+		if (head_len > 0) {
+			memcpy(new_data, pos, head_len);
+			new_len += head_len;
+		}
+
+		pos += sizeof(uint16_t) + *pos;
+
+		// Copy trailing data block.
+		assert((uint8_t *)d.data + d.len >= pos);
+		size_t tail_len = (uint8_t *)d.data + d.len - pos;
+		if (tail_len > 0) {
+			memcpy(new_data + new_len, pos, tail_len);
+			new_len += tail_len;
+		}
+
+		d.data = new_data;
+		d.len = new_len;
+
+		// Insert reduced data.
+		ret = conf->api->insert(txn, key, &d, 0);
+
+		free(new_data);
+
+		return ret;
+	}
+}
+
+int conf_db_del(
+	conf_t *conf,
+	namedb_txn_t *txn,
+	yp_check_ctx_t *ctx)
+{
+	if (conf == NULL || txn == NULL || ctx == NULL) {
+		return KNOT_EINVAL;
+	}
+
+	yp_node_t *node = &ctx->nodes[ctx->current];
+	yp_node_t *parent = node->parent;
+
+	int ret;
+	uint8_t k[CONF_MAX_KEY_LEN];
+	namedb_val_t key = { k, CONF_MIN_KEY_LEN };
+
+	// Set key0 code.
+	const yp_node_t *id_node = (parent == NULL) ? node : parent;
+	ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, id_node->item->name,
+	                   true, &k[KEY0_POS]);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	// Set id part.
+	if (id_node->id_len > 0) {
+		memcpy(k + CONF_MIN_KEY_LEN, id_node->id, id_node->id_len);
+		key.len += id_node->id_len;
+
+		k[KEY1_POS] = CONF_CODE_KEY1_ID;
+		namedb_val_t val = { NULL };
+
+		// Check for existing id.
+		ret = conf->api->find(txn, &key, &val, 0);
+		if (ret != KNOT_EOK) {
+			return KNOT_YP_EINVAL_ID;
+		}
+	}
+
+	// Delete key1 data.
+	if (parent != NULL) {
+		// Set key1 code.
+		ret = conf_db_code(conf, txn, k[KEY0_POS], node->item->name,
+		                   true, &k[KEY1_POS]);
+		if (ret != KNOT_EOK) {
+			return ret;
+		}
+
+		namedb_val_t val = { node->data, node->data_len };
+		ret = db_delete(conf, txn, &key, &val,
+		                node->item->flags & YP_FMULTI);
+		if (ret != KNOT_EOK) {
+			return ret;
+		}
+	// Delete whole item section with the id.
+	} else if (id_node->id_len > 0) {
+		// TODO
+		return KNOT_ENOTSUP;
+	// Delete whole section.
+	} else {
+		// TODO
+		return KNOT_ENOTSUP;
+	}
+
+	return KNOT_EOK;
+}
+
+int conf_db_get(
+	conf_t *conf,
+	namedb_txn_t *txn,
+	yp_check_ctx_t *ctx,
+	conf_val_t *out)
+{
+	int ret;
+
+	if (conf == NULL || txn == NULL || ctx == NULL) {
+		ret = KNOT_EINVAL;
+		goto get_error;
+	}
+
+	yp_node_t *node = &ctx->nodes[ctx->current];
+	yp_node_t *parent = node->parent;
+
+	if (parent != NULL) {
+		ret = conf_db_raw_get(conf, txn, parent->item->name,
+		                      node->item->name, parent->id,
+		                      parent->id_len, out);
+	} else {
+		ret = conf_db_raw_get(conf, txn, node->item->name,
+		                      NULL, node->id, node->id_len, out);
+	}
+	if (ret != KNOT_EOK) {
+		goto get_error;
+	}
+
+	ret = KNOT_EOK;
+get_error:
+	if (out != NULL) {
+		out->code = ret;
+	}
+
+	return ret;
 }
 
 int conf_db_raw_get(
