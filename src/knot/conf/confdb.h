@@ -61,7 +61,7 @@ int conf_db_set(
 	yp_check_ctx_t *ctx
 );
 
-int conf_db_get(
+int conf_db_raw_get(
 	conf_t *conf,
 	namedb_txn_t *txn,
 	const yp_name_t *key0,

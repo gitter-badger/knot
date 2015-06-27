@@ -189,8 +189,8 @@ int check_ref(
 
 	// Try to find the id in the referenced category.
 	// Cannot use conf_raw_get as id is not stored in confdb directly!
-	int ret = conf_db_get(args->conf, args->txn, parent->name, NULL,
-	                      node->data, node->data_len, NULL);
+	int ret = conf_db_raw_get(args->conf, args->txn, parent->name, NULL,
+	                          node->data, node->data_len, NULL);
 	if (ret != KNOT_EOK) {
 		*args->err_str = err_str;
 	}
@@ -210,8 +210,8 @@ int check_modref(
 
 	// Try to find the module with id.
 	// Cannot use conf_raw_get as id is not stored in confdb directly!
-	int ret = conf_db_get(args->conf, args->txn, mod_name, NULL, id, id_len,
-	                      NULL);
+	int ret = conf_db_raw_get(args->conf, args->txn, mod_name, NULL, id,
+	                          id_len, NULL);
 	if (ret != KNOT_EOK) {
 		*args->err_str = err_str;
 	}

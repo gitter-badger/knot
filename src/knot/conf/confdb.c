@@ -350,7 +350,7 @@ int conf_db_set(
 	return KNOT_EOK;
 }
 
-int conf_db_get(
+int conf_db_raw_get(
 	conf_t *conf,
 	namedb_txn_t *txn,
 	const yp_name_t *key0,
@@ -359,15 +359,19 @@ int conf_db_get(
 	size_t id_len,
 	conf_val_t *out)
 {
+	int ret;
+
 	if (conf == NULL || txn == NULL || key0 == NULL) {
-		return KNOT_EINVAL;
+		ret = KNOT_EINVAL;
+		goto raw_get_error;
 	}
 
 	// Look-up item in the scheme.
 	if (out != NULL) {
 		out->item = yp_scheme_find(key1, key0, conf->scheme);
 		if (out->item == NULL) {
-			return KNOT_YP_EINVAL_ITEM;
+			ret = KNOT_YP_EINVAL_ITEM;
+			goto raw_get_error;
 		}
 	}
 
@@ -376,10 +380,10 @@ int conf_db_get(
 	namedb_val_t val;
 
 	// Set key0 code.
-	int ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, key0, true,
-	                       &k[KEY0_POS]);
+	ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, key0, true,
+	                   &k[KEY0_POS]);
 	if (ret != KNOT_EOK) {
-		return ret;
+		goto raw_get_error;
 	}
 
 	// Set key1 code.
@@ -387,20 +391,22 @@ int conf_db_get(
 		ret = conf_db_code(conf, txn, k[KEY0_POS], key1, true,
 		                   &k[KEY1_POS]);
 		if (ret != KNOT_EOK) {
-			return ret;
+			goto raw_get_error;
 		}
 	// Set key1 id code.
 	} else if (id != NULL && id_len > 0) {
 		k[KEY1_POS] = CONF_CODE_KEY1_ID;
 	// At least key1 or id must be non-zero.
 	} else {
-		return KNOT_EINVAL;
+		ret = KNOT_EINVAL;
+		goto raw_get_error;
 	}
 
 	// Fill the item id.
 	if (id != NULL && id_len > 0) {
 		if (id_len > YP_MAX_ID_LEN) {
-			return KNOT_EINVAL;
+			ret = KNOT_EINVAL;
+			goto raw_get_error;
 		}
 		memcpy(k + CONF_MIN_KEY_LEN, id, id_len);
 		key.len += id_len;
@@ -409,18 +415,23 @@ int conf_db_get(
 	// Read the data.
 	ret = conf->api->find(txn, &key, &val, 0);
 	if (ret != KNOT_EOK) {
-		return ret;
+		goto raw_get_error;
 	}
 
+	ret = KNOT_EOK;
+raw_get_error:
 	// Set the output.
 	if (out != NULL) {
-		out->blob = val.data;
-		out->blob_len = val.len;
-		out->data = NULL;
-		out->len = 0;
+		if (ret == KNOT_EOK) {
+			out->blob = val.data;
+			out->blob_len = val.len;
+			out->data = NULL;
+			out->len = 0;
+		}
+		out->code = ret;
 	}
 
-	return KNOT_EOK;
+	return ret;
 }
 
 void conf_db_val(

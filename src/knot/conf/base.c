@@ -669,8 +669,8 @@ static int export_group(
 	yp_item_t *item;
 	for (item = group->sub_items; item->name != NULL; item++) {
 		conf_val_t bin;
-		bin.code = conf_db_get(conf, &conf->read_txn, group->name,
-		                       item->name, id, id_len, &bin);
+		conf_db_raw_get(conf, &conf->read_txn, group->name, item->name,
+		                id, id_len, &bin);
 		if (bin.code == KNOT_ENOENT) {
 			continue;
 		} else if (bin.code != KNOT_EOK) {

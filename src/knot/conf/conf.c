@@ -52,7 +52,7 @@ conf_val_t conf_get_txn(
 		return val;
 	}
 
-	val.code = conf_db_get(conf, txn, key0_name, key1_name, NULL, 0, &val);
+	conf_db_raw_get(conf, txn, key0_name, key1_name, NULL, 0, &val);
 	switch (val.code) {
 	default:
 		CONF_LOG(LOG_ERR, "failed to read '%s/%s' (%s)",
@@ -80,7 +80,7 @@ conf_val_t conf_rawid_get_txn(
 		return val;
 	}
 
-	val.code = conf_db_get(conf, txn, key0_name, key1_name, id, id_len, &val);
+	conf_db_raw_get(conf, txn, key0_name, key1_name, id, id_len, &val);
 	switch (val.code) {
 	default:
 		CONF_LOG(LOG_ERR, "failed to read '%s/%s' with identifier (%s)",
@@ -110,8 +110,7 @@ conf_val_t conf_id_get_txn(
 
 	conf_db_val(id);
 
-	val.code = conf_db_get(conf, txn, key0_name, key1_name, id->data,
-	                       id->len, &val);
+	conf_db_raw_get(conf, txn, key0_name, key1_name, id->data, id->len, &val);
 	switch (val.code) {
 	default:
 		CONF_LOG(LOG_ERR, "failed to read '%s/%s' with identifier (%s)",
@@ -137,8 +136,8 @@ conf_val_t conf_mod_get_txn(
 		return val;
 	}
 
-	val.code = conf_db_get(conf, txn, mod_id->name, key1_name, mod_id->data,
-	                       mod_id->len, &val);
+	conf_db_raw_get(conf, txn, mod_id->name, key1_name, mod_id->data,
+	                mod_id->len, &val);
 	switch (val.code) {
 	default:
 		CONF_LOG(LOG_ERR, "failed to read '%s/%s' (%s)",
@@ -167,7 +166,7 @@ conf_val_t conf_zone_get_txn(
 	int dname_size = knot_dname_size(dname);
 
 	// Try to get explicit value.
-	val.code = conf_db_get(conf, txn, C_ZONE, key1_name, dname, dname_size, &val);
+	conf_db_raw_get(conf, txn, C_ZONE, key1_name, dname, dname_size, &val);
 	switch (val.code) {
 	case KNOT_EOK:
 		return val;
@@ -180,13 +179,13 @@ conf_val_t conf_zone_get_txn(
 	}
 
 	// Check if a template is available.
-	val.code = conf_db_get(conf, txn, C_ZONE, C_TPL, dname, dname_size, &val);
+	conf_db_raw_get(conf, txn, C_ZONE, C_TPL, dname, dname_size, &val);
 	switch (val.code) {
 	case KNOT_EOK:
 		// Use the specified template.
 		conf_db_val(&val);
-		val.code = conf_db_get(conf, txn, C_TPL, key1_name,
-		                       val.data, val.len, &val);
+		conf_db_raw_get(conf, txn, C_TPL, key1_name, val.data, val.len,
+		                &val);
 		break;
 	default:
 		CONF_LOG_ZONE(LOG_ERR, dname, "failed to read '%s/%s' (%s)",
@@ -194,8 +193,8 @@ conf_val_t conf_zone_get_txn(
 		// FALLTHROUGH
 	case KNOT_ENOENT:
 		// Use the default template.
-		val.code = conf_db_get(conf, txn, C_TPL, key1_name,
-		                       CONF_DEFAULT_ID + 1, CONF_DEFAULT_ID[0], &val);
+		conf_db_raw_get(conf, txn, C_TPL, key1_name, CONF_DEFAULT_ID + 1,
+		                CONF_DEFAULT_ID[0], &val);
 	}
 
 	switch (val.code) {
@@ -224,8 +223,8 @@ conf_val_t conf_default_get_txn(
 		return val;
 	}
 
-	val.code = conf_db_get(conf, txn, C_TPL, key1_name,
-	                       CONF_DEFAULT_ID + 1, CONF_DEFAULT_ID[0], &val);
+	conf_db_raw_get(conf, txn, C_TPL, key1_name, CONF_DEFAULT_ID + 1,
+	                CONF_DEFAULT_ID[0], &val);
 	switch (val.code) {
 	default:
 		CONF_LOG(LOG_ERR, "failed to read default '%s/%s' (%s)",
