@@ -50,6 +50,12 @@ enum knot_conf_code {
 	CONF_CODE_KEY1_VERSION = 255
 };
 
+typedef enum {
+	CONF_DB_GET,
+	CONF_DB_SET,
+	CONF_DB_DEL
+} conf_db_action_t;
+
 int conf_db_init(
 	conf_t *conf,
 	namedb_txn_t *txn
@@ -121,7 +127,7 @@ int conf_db_code(
 	namedb_txn_t *txn,
 	uint8_t section_code,
 	const yp_name_t *name,
-	bool read_only,
+	conf_db_action_t action,
 	uint8_t *db_code
 );
 

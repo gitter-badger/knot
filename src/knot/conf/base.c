@@ -733,9 +733,8 @@ int conf_export(
 		}
 
 		// Check if the item is ever stored in DB.
-		uint8_t item_code;
 		ret = conf_db_code(conf, &conf->read_txn, CONF_CODE_KEY0_ROOT,
-		                   item->name, true, &item_code);
+		                   item->name, CONF_DB_GET, NULL);
 		if (ret == KNOT_ENOENT) {
 			continue;
 		} else if (ret != KNOT_EOK) {

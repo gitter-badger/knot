@@ -91,10 +91,10 @@ int conf_db_code(
 	namedb_txn_t *txn,
 	uint8_t section_code,
 	const yp_name_t *name,
-	bool read_only,
+	conf_db_action_t action,
 	uint8_t *db_code)
 {
-	if (conf == NULL || txn == NULL || name == NULL || db_code == NULL) {
+	if (conf == NULL || txn == NULL || name == NULL) {
 		return KNOT_EINVAL;
 	}
 
@@ -109,11 +109,22 @@ int conf_db_code(
 	// Check if the item is already registered.
 	namedb_val_t data;
 	int ret = conf->api->find(txn, &key, &data, 0);
-	if (ret == KNOT_EOK) {
-		*db_code = ((uint8_t *)data.data)[0];
+	switch (ret) {
+	case KNOT_EOK:
+		if (action == CONF_DB_DEL) {
+			return conf->api->del(txn, &key);
+		}
+		if (db_code != NULL) {
+			*db_code = ((uint8_t *)data.data)[0];
+		}
 		return KNOT_EOK;
-	} else if (read_only) {
-		return KNOT_ENOENT;
+	case KNOT_ENOENT:
+		if (action != CONF_DB_SET) {
+			return KNOT_ENOENT;
+		}
+		break;
+	default:
+		return ret;
 	}
 
 	uint8_t new_code = CONF_CODE_KEY1_FIRST;
@@ -173,7 +184,9 @@ int conf_db_code(
 		return ret;
 	}
 
-	*db_code = new_code;
+	if (db_code != NULL) {
+		*db_code = new_code;
+	}
 
 	return KNOT_EOK;
 }
@@ -297,7 +310,7 @@ int conf_db_set(
 	// Set key0 code.
 	const yp_node_t *id_node = (parent == NULL) ? node : parent;
 	ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, id_node->item->name,
-	                   false, &k[KEY0_POS]);
+	                   CONF_DB_SET, &k[KEY0_POS]);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
@@ -333,7 +346,7 @@ int conf_db_set(
 	if (parent != NULL) {
 		// Set key1 code.
 		ret = conf_db_code(conf, txn, k[KEY0_POS], node->item->name,
-		                   false, &k[KEY1_POS]);
+		                   CONF_DB_SET, &k[KEY1_POS]);
 		if (ret != KNOT_EOK) {
 			return ret;
 		}
@@ -435,7 +448,7 @@ int conf_db_del(
 	// Set key0 code.
 	const yp_node_t *id_node = (parent == NULL) ? node : parent;
 	ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, id_node->item->name,
-	                   true, &k[KEY0_POS]);
+	                   CONF_DB_GET, &k[KEY0_POS]);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
@@ -459,7 +472,7 @@ int conf_db_del(
 	if (parent != NULL) {
 		// Set key1 code.
 		ret = conf_db_code(conf, txn, k[KEY0_POS], node->item->name,
-		                   true, &k[KEY1_POS]);
+		                   CONF_DB_GET, &k[KEY1_POS]);
 		if (ret != KNOT_EOK) {
 			return ret;
 		}
@@ -550,7 +563,7 @@ int conf_db_raw_get(
 	namedb_val_t val;
 
 	// Set key0 code.
-	ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, key0, true,
+	ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, key0, CONF_DB_GET,
 	                   &k[KEY0_POS]);
 	if (ret != KNOT_EOK) {
 		goto raw_get_error;
@@ -558,7 +571,7 @@ int conf_db_raw_get(
 
 	// Set key1 code.
 	if (key1 != NULL) {
-		ret = conf_db_code(conf, txn, k[KEY0_POS], key1, true,
+		ret = conf_db_code(conf, txn, k[KEY0_POS], key1, CONF_DB_GET,
 		                   &k[KEY1_POS]);
 		if (ret != KNOT_EOK) {
 			goto raw_get_error;
@@ -682,8 +695,8 @@ int conf_db_iter_begin(
 	iter->item = grp->var.g.id;
 
 	// Get key0 code.
-	int ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, key0, true,
-	                       &iter->key0_code);
+	int ret = conf_db_code(conf, txn, CONF_CODE_KEY0_ROOT, key0,
+	                       CONF_DB_GET, &iter->key0_code);
 	if (ret != KNOT_EOK) {
 		return ret;
 	}
