@@ -81,11 +81,12 @@ static int yp_bool_to_bin(
 	TXT_BIN_PARAMS)
 {
 	if (strcasecmp(txt, "on") == 0 || strcasecmp(txt, "true") == 0) {
-		bin[0] = '\0'; // Just in case.
+		bin[0] = 1;
 		*bin_len = 1;
 		return KNOT_EOK;
 	} else if (strcasecmp(txt, "off") == 0 || strcasecmp(txt, "false") == 0) {
-		*bin_len = 0;
+		bin[0] = 0;
+		*bin_len = 1;
 		return KNOT_EOK;
 	}
 
@@ -97,7 +98,7 @@ static int yp_bool_to_txt(
 {
 	int ret;
 
-	switch (bin_len) {
+	switch (bin[0]) {
 	case 0:
 		ret = snprintf(txt, *txt_len, "off");
 		if (ret <= 0 || ret >= *txt_len) {
@@ -633,7 +634,7 @@ int yp_item_to_bin(
 	switch (item->type) {
 	case YP_TINT:
 		return yp_int_to_bin(txt, txt_len, bin, bin_len, item->var.i.min,
-		                     item->var.i.max, 0, item->var.i.unit);
+		                     item->var.i.max, 1, item->var.i.unit);
 	case YP_TBOOL:
 		return yp_bool_to_bin(txt, txt_len, bin, bin_len);
 	case YP_TOPT:

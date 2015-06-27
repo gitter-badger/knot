@@ -94,9 +94,9 @@ inline static int64_t yp_int(
  * \return Boolean value.
  */
 inline static bool yp_bool(
-	size_t data_len)
+	const uint8_t *data)
 {
-	return (data_len > 0) ? true : false;
+	return (data[0] == 0) ? false : true;
 }
 
 /*!

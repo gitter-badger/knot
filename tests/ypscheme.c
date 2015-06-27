@@ -139,13 +139,13 @@ static int parser_test(void) {
 		PARSE_CHECK(0);
 		ok(strcmp(node->item->name + 1, "bool") == 0, "name check");
 		ok(node->item->type == YP_TBOOL, "type check");
-		ok(yp_bool(node->data_len) == true, "value check");
+		ok(yp_bool(node->data) == true, "value check");
 	}
 	for (int i = 0; i < 2; i++) {
 		PARSE_CHECK(0);
 		ok(strcmp(node->item->name + 1, "bool") == 0, "name check");
 		ok(node->item->type == YP_TBOOL, "type check");
-		ok(yp_bool(node->data_len) == false, "value check");
+		ok(yp_bool(node->data) == false, "value check");
 	}
 
 	/* Group test. */

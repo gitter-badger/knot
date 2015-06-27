@@ -68,7 +68,7 @@ static void bool_test(const char *txt, bool val)
 	diag("boolean \"%s\":", txt);
 	ret = yp_item_to_bin(&i, txt, strlen(txt), b, &b_len);
 	ok(ret == KNOT_EOK, "txt to bin");
-	ok(yp_bool(b_len) == val, "compare");
+	ok(yp_bool(b) == val, "compare");
 	ret = yp_item_to_txt(&i, b, b_len, t, &t_len, YP_SNOQUOTE);
 	ok(ret == KNOT_EOK, "bin to txt");
 	ok(strlen(t) == t_len, "txt length");

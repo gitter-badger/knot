@@ -387,7 +387,7 @@ bool conf_bool(
 
 	if (val->code == KNOT_EOK) {
 		conf_db_val(val);
-		return yp_bool(val->len);
+		return yp_bool(val->data);
 	} else {
 		return val->item->var.b.dflt;
 	}

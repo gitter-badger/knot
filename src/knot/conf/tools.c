@@ -48,6 +48,10 @@ int hex_text_to_bin(
 {
 	// Check for hex notation (leading "0x").
 	if (txt_len >= 2 && txt[0] == '0' && txt[1] == 'x') {
+		if (txt_len == 2) {
+			return KNOT_EINVAL;
+		}
+
 		txt += 2;
 		txt_len -= 2;
 
