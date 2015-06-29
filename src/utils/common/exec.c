@@ -245,7 +245,7 @@ static void print_section_opt(const knot_rrset_t *rr, const uint8_t rcode)
 		uint16_t opt_len = wire_ctx_read_u16(&wire);
 		uint8_t *opt_data = wire.position;
 
-		if(wire_ctx_available(&wire) < opt_len) {
+		if (wire_ctx_available(&wire) < opt_len) {
 			break;
 		}
 

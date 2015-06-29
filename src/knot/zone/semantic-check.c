@@ -251,7 +251,7 @@ static int check_dnskey_rdata(const knot_rrset_t *rrset, size_t rdata_pos)
 	const knot_rdata_t *rr_data = knot_rdataset_at(&rrset->rrs, rdata_pos);
 	wire_ctx_t wire = wire_ctx_init_rdata(rr_data);
 	uint16_t flags = wire_ctx_read_u16(&wire);
-	if(wire.error) {
+	if (wire.error) {
 		return wire.error;
 	}
 

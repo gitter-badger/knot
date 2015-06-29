@@ -111,7 +111,7 @@ static int rrsig_write_rdata(uint8_t *rdata, size_t rdata_len,
 	assert(signer);
 	wire_ctx_write(&wire, signer, knot_dname_size(signer));	// signer
 
-	if(wire.error) {
+	if (wire.error) {
 		return wire.error;
 	}
 

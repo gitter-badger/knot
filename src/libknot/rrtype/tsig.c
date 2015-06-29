@@ -113,7 +113,7 @@ static uint8_t* rdata_seek(const knot_rrset_t *rr, tsig_off_t id, size_t nb)
 
 	/* Check remaining bytes. */
 
-	if(wire_ctx_available(&wire) < nb){
+	if (wire_ctx_available(&wire) < nb){
 		return NULL;
 	}
 
