@@ -29,6 +29,7 @@
 #include "libknot/libknot.h"
 #include "libknot/internal/base32hex.h"
 #include "libknot/internal/mempattern.h"
+#include "libknot/internal/wire_ctx.h"
 
 static char *error_messages[(-ZC_ERR_UNKNOWN) + 1] = {
 	[-ZC_ERR_MISSING_SOA] =
@@ -240,6 +241,7 @@ int err_handler_handle_error(err_handler_t *handler, const zone_contents_t *zone
  *
  * \retval KNOT_EOK when rdata are OK.
  * \retval ZC_ERR_RRSIG_RDATA_DNSKEY_OWNER when rdata are not OK.
+ * \retval KNOT_EFEWDATA when bad read
  */
 static int check_dnskey_rdata(const knot_rrset_t *rrset, size_t rdata_pos)
 {
@@ -247,7 +249,12 @@ static int check_dnskey_rdata(const knot_rrset_t *rrset, size_t rdata_pos)
 	const uint16_t mask = 1 << 8; //0b0000000100000000;
 
 	const knot_rdata_t *rr_data = knot_rdataset_at(&rrset->rrs, rdata_pos);
-	uint16_t flags = wire_read_u16(knot_rdata_data(rr_data));
+	wire_ctx_t wire = wire_ctx_init_rdata(rr_data);
+	uint16_t flags = wire_ctx_read_u16(&wire);
+	if(wire.error) {
+		return wire.error;
+	}
+
 	if (flags & mask) {
 		return KNOT_EOK;
 	} else {

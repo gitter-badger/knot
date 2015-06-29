@@ -28,6 +28,7 @@
 #include "libknot/internal/print.h"
 #include "libknot/internal/sockaddr.h"
 #include "libknot/internal/strlcat.h"
+#include "libknot/internal/wire_ctx.h"
 
 static lookup_table_t rtypes[] = {
 	{ KNOT_RRTYPE_A,      "has IPv4 address" },
@@ -237,14 +238,16 @@ static void print_section_opt(const knot_rrset_t *rr, const uint8_t rcode)
 	knot_rdata_t *rdata = knot_rdataset_at(&rr->rrs, 0);
 	assert(rdata != NULL);
 
-	uint16_t data_len = knot_rdata_rdlen(rdata);
-	uint8_t *data = knot_rdata_data(rdata);
-	int pos = 0;
+	wire_ctx_t wire = wire_ctx_init_rdata(rdata);
 
-	while (pos < data_len - KNOT_EDNS_OPTION_HDRLEN) {
-		uint16_t opt_code = wire_read_u16(data + pos);
-		uint16_t opt_len = wire_read_u16(data + pos + 2);
-		uint8_t *opt_data = data + pos + 4;
+	while (wire_ctx_available(&wire) > KNOT_EDNS_OPTION_HDRLEN) {
+		uint16_t opt_code = wire_ctx_read_u16(&wire);
+		uint16_t opt_len = wire_ctx_read_u16(&wire);
+		uint8_t *opt_data = wire.position;
+
+		if(wire_ctx_available(&wire) < opt_len) {
+			break;
+		}
 
 		switch (opt_code) {
 		case KNOT_EDNS_OPTION_NSID:
@@ -264,7 +267,7 @@ static void print_section_opt(const knot_rrset_t *rr, const uint8_t rcode)
 			short_hex_print(opt_data, opt_len);
 		}
 
-		pos += 4 + opt_len;
+		wire_ctx_seek(&wire, opt_len);
 	}
 }
 

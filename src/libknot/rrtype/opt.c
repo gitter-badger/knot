@@ -197,26 +197,23 @@ void knot_edns_set_do(knot_rrset_t *opt_rr)
  */
 static uint8_t *find_option(knot_rdata_t *rdata, uint16_t opt_code)
 {
-	assert(rdata != NULL);
+	wire_ctx_t wire = wire_ctx_init_rdata(rdata);
 
-	uint8_t *data = knot_rdata_data(rdata);
-	uint16_t rdlength = knot_rdata_rdlen(rdata);
-
-	uint8_t *pos = NULL;
-
-	int i = 0;
-	while (i + KNOT_EDNS_OPTION_HDRLEN <= rdlength) {
-		uint16_t code = wire_read_u16(data + i);
-		if (opt_code == code) {
-			pos = data + i;
+	while (wire_ctx_available(&wire)) {
+		uint16_t code = wire_ctx_read_u16(&wire);
+		if (wire.error) {
 			break;
 		}
-		uint16_t opt_len = wire_read_u16(data + i
-		                                      + sizeof(uint16_t));
-		i += (KNOT_EDNS_OPTION_HDRLEN + opt_len);
+
+		if (code == opt_code) {
+			return wire.position - sizeof(uint16_t);
+		}
+
+		uint16_t opt_len = wire_ctx_read_u16(&wire);
+		wire_ctx_seek(&wire, opt_len);
 	}
 
-	return pos;
+	return NULL;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -295,21 +292,18 @@ bool knot_edns_check_record(knot_rrset_t *opt_rr)
 		return false;
 	}
 
-	uint8_t *data = knot_rdata_data(rdata);
-	uint16_t rdlength = knot_rdata_rdlen(rdata);
-	uint32_t pos = 0;
+	wire_ctx_t wire = wire_ctx_init_rdata(rdata);
 
 	/* RFC2671 4.4: {uint16_t code, uint16_t len, data} */
-	while (pos + KNOT_EDNS_OPTION_HDRLEN <= rdlength) {
-		uint16_t opt_len = wire_read_u16(data + pos
-		                                      + sizeof(uint16_t));
-		pos += KNOT_EDNS_OPTION_HDRLEN + opt_len;
+	// read data to the end or error
+	while (wire_ctx_available(&wire) && wire.error == KNOT_EOK) {
+		wire_ctx_read_u16(&wire); // code
+		uint16_t opt_len = wire_ctx_read_u16(&wire); // length
+		wire_ctx_seek(&wire, opt_len); // data
 	}
 
-	/* If not at the end of the RDATA, there are either some redundant data
-	 * (pos < rdlength) or the last OPTION is too long (pos > rdlength).
-	 */
-	return pos == rdlength;
+	// If no error while reading, all data is correct
+	return wire.error == KNOT_EOK;
 }
 
 /*----------------------------------------------------------------------------*/

@@ -28,6 +28,7 @@
 #include "knot/dnssec/nsec-chain.h"
 #include "knot/dnssec/zone-sign.h"
 #include "knot/dnssec/zone-nsec.h"
+#include "libknot/internal/wire_ctx.h"
 
 /* - Forward declarations --------------------------------------------------- */
 
@@ -208,9 +209,10 @@ static size_t nsec3_rdata_size(const knot_nsec3_params_t *params,
  *
  * \note Content of next hash field is not changed.
  */
-static void nsec3_fill_rdata(uint8_t *rdata, const knot_nsec3_params_t *params,
-                             const dnssec_nsec_bitmap_t *rr_types,
-                             const uint8_t *next_hashed, uint32_t ttl)
+static void nsec3_fill_rdata(uint8_t *rdata, size_t rdata_len,
+			     const knot_nsec3_params_t *params,
+			     const dnssec_nsec_bitmap_t *rr_types,
+			     const uint8_t *next_hashed, uint32_t ttl)
 {
 	assert(rdata);
 	assert(params);
@@ -218,24 +220,20 @@ static void nsec3_fill_rdata(uint8_t *rdata, const knot_nsec3_params_t *params,
 
 	uint8_t hash_length = dnssec_nsec3_hash_length(params->algorithm);
 
-	*rdata = params->algorithm;                       // hash algorithm
-	rdata += 1;
-	*rdata = 0;                                       // flags
-	rdata += 1;
-	wire_write_u16(rdata, params->iterations);        // iterations
-	rdata += 2;
-	*rdata = params->salt_length;                     // salt length
-	rdata += 1;
-	memcpy(rdata, params->salt, params->salt_length); // salt
-	rdata += params->salt_length;
-	*rdata = hash_length;                             // hash length
-	rdata += 1;
-	/*memset(rdata, '\0', hash_len);*/                // hash (unknown)
+	wire_ctx_t wire = wire_ctx_init(rdata, rdata_len);
+	wire_ctx_write_u8(&wire, params->algorithm);	// hash algorithm
+	wire_ctx_write_u8(&wire, 0);			// flags
+	wire_ctx_write_u16(&wire, params->iterations);	// itertions
+	wire_ctx_write_u8(&wire, params->salt_length);	// salt length
+	wire_ctx_write(&wire, params->salt, params->salt_length);	// salt
+	wire_ctx_write_u8(&wire, hash_length);		// hash length
 	if (next_hashed) {
-		memcpy(rdata, next_hashed, hash_length);
+		wire_ctx_write(&wire, next_hashed, hash_length);
+	} else {
+		wire_ctx_seek(&wire, hash_length);
 	}
-	rdata += hash_length;
-	dnssec_nsec_bitmap_write(rr_types, rdata);        // RR types bit map
+
+	dnssec_nsec_bitmap_write(rr_types, wire.position);  // RR types bit map
 }
 
 /*!
@@ -265,7 +263,7 @@ static int create_nsec3_rrset(knot_rrset_t *rrset,
 
 	size_t rdata_size = nsec3_rdata_size(params, rr_types);
 	uint8_t rdata[rdata_size];
-	nsec3_fill_rdata(rdata, params, rr_types, next_hashed, ttl);
+	nsec3_fill_rdata(rdata, rdata_size, params, rr_types, next_hashed, ttl);
 
 	return knot_rrset_add_rdata(rrset, rdata, rdata_size, ttl, NULL);
 }
