@@ -274,6 +274,10 @@ void conf_free(
 	conf->api->txn_abort(&conf->read_txn);
 	free(conf->hostname);
 
+	if (conf->edit.active) {
+		conf->api->txn_abort(&conf->edit.txn);
+	}
+
 	if (conf->query_plan != NULL) {
 		conf_deactivate_modules(conf, &conf->query_modules,
 		                        conf->query_plan);

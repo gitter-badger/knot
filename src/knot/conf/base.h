@@ -48,12 +48,22 @@ typedef struct {
 	mm_ctx_t *mm;
 	/*! Configuration database. */
 	namedb_t *db;
+
 	/*! Read-only transaction for config access. */
 	namedb_txn_t read_txn;
+
+	struct {
+		/*! Writing transaction status. */
+		bool active;
+		/*! Writing transaction. */
+		namedb_txn_t txn;
+	} edit;
+
 	/*! Prearranged hostname string (for automatic NSID or CH ident value). */
 	char *hostname;
 	/*! Current config file (for reload if started with config file). */
 	char *filename;
+
 	/*! List of active query modules. */
 	list_t query_modules;
 	/*! Default query modules plan. */

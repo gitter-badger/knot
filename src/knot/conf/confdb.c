@@ -376,7 +376,7 @@ static int db_delete(
 		namedb_val_t d;
 
 		int ret = conf->api->find(txn, key, &d, 0);
-		if (ret != KNOT_ENOENT) {
+		if (ret != KNOT_EOK) {
 			return ret;
 		}
 
@@ -403,7 +403,7 @@ static int db_delete(
 		assert(pos >= (uint8_t *)d.data);
 		size_t head_len = pos - (uint8_t *)d.data;
 		if (head_len > 0) {
-			memcpy(new_data, pos, head_len);
+			memcpy(new_data, d.data, head_len);
 			new_len += head_len;
 		}
 
@@ -486,7 +486,10 @@ int conf_db_del(
 	// Delete whole item section with the id.
 	} else if (id_node->id_len > 0) {
 		// TODO
-		return KNOT_ENOTSUP;
+		ret = conf->api->del(txn, &key);
+		if (ret != KNOT_EOK) {
+			return ret;
+		}
 	// Delete whole section.
 	} else {
 		// TODO

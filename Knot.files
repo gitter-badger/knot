@@ -193,6 +193,8 @@ src/knot/conf/conf.c
 src/knot/conf/conf.h
 src/knot/conf/confdb.c
 src/knot/conf/confdb.h
+src/knot/conf/edit.c
+src/knot/conf/edit.h
 src/knot/conf/scheme.c
 src/knot/conf/scheme.h
 src/knot/conf/tools.c

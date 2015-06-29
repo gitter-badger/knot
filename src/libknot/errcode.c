@@ -131,9 +131,11 @@ static const struct error errors[] = {
 	{ KNOT_YP_ENOID,         "missing identifier" },
 
 	/* Configuration errors. */
-	{ KNOT_CONF_EMPTY,     "empty configuration database" },
-	{ KNOT_CONF_EVERSION,  "invalid configuration database version" },
-	{ KNOT_CONF_EREDEFINE, "duplicate identifier" },
+	{ KNOT_CONF_EMPTY,        "empty configuration database" },
+	{ KNOT_CONF_EVERSION,     "invalid configuration database version" },
+	{ KNOT_CONF_EREDEFINE,    "duplicate identifier" },
+	{ KNOT_CONF_EEDITABLE,    "configuration is currently editable" },
+	{ KNOT_CONF_ENOTEDITABLE, "configuration is not editable" },
 
 	/* Processing errors. */
 	{ KNOT_LAYER_ERROR, "processing layer error" },
