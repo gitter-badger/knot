@@ -22,3 +22,18 @@
  * \brief Signalize to the init system ready state.
  */
 void initsys_signal_ready(void);
+
+/*!
+ * \brief Check if the daemon was socket activated.
+ */
+bool initsys_socket_activated(void);
+
+/*!
+ * \brief Get first socket passed from the init system.
+ */
+int initsys_fds_first(void);
+
+/*!
+ * \brief Get number of sockets passed from the init system.
+ */
+int initsys_fds_count(void);

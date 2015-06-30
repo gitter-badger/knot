@@ -26,11 +26,41 @@ void initsys_signal_ready(void)
 	sd_notify(0, "READY=1");
 }
 
+bool initsys_socket_activated(void)
+{
+	return initsys_fds_count() != 0;
+}
+
+int initsys_fds_first(void)
+{
+	return SD_LISTEN_FDS_START;
+}
+
+int initsys_fds_count(void)
+{
+	return sd_listen_fds(0);
+}
+
 #else
 
 void initsys_signal_ready(void)
 {
 	// no-op
+}
+
+bool initsys_socket_activated(void)
+{
+	return false;
+}
+
+int initsys_fds_first(void)
+{
+	return 0;
+}
+
+int initsys_fds_count(void)
+{
+	return 0;
 }
 
 #endif
