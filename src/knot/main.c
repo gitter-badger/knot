@@ -27,16 +27,13 @@
 #include <cap-ng.h>
 #endif /* HAVE_CAP_NG_H */
 
-#ifdef ENABLE_SYSTEMD
-#include <systemd/sd-daemon.h>
-#endif
-
 #include "dnssec/crypto.h"
 #include "libknot/libknot.h"
 #include "knot/ctl/process.h"
 #include "knot/ctl/remote.h"
 #include "knot/conf/conf.h"
 #include "knot/common/log.h"
+#include "knot/server/initsys.h"
 #include "knot/server/server.h"
 #include "knot/server/tcp-handler.h"
 #include "knot/zone/timers.h"
@@ -44,14 +41,6 @@
 /* Signal flags. */
 static volatile bool sig_req_stop = false;
 static volatile bool sig_req_reload = false;
-
-/* \brief Signal started state to the init system. */
-static void init_signal_started(void)
-{
-#ifdef ENABLE_SYSTEMD
-	sd_notify(0, "READY=1");
-#endif
-}
 
 static int make_daemon(int nochdir, int noclose)
 {
@@ -459,7 +448,7 @@ int main(int argc, char **argv)
 		log_info("server started as a daemon, PID %ld", pid);
 	} else {
 		log_info("server started in the foreground, PID %ld", pid);
-		init_signal_started();
+		initsys_signal_ready();
 	}
 
 	/* Start the event loop. */

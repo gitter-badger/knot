@@ -270,6 +270,8 @@ libknotd_la_SOURCES =				\
 	knot/common/trim.h			\
 	knot/server/dthreads.c			\
 	knot/server/dthreads.h			\
+	knot/server/initsys.c			\
+	knot/server/initsys.h			\
 	knot/server/journal.c			\
 	knot/server/journal.h			\
 	knot/server/rrl.c			\
