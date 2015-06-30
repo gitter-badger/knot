@@ -111,6 +111,25 @@ operation, thus flag \fB\-f\fP is required.
 .TP
 \fBexport\fP \fIfile\fP
 Export configuration database to file.
+.TP
+\fBconf\-edit\fP
+Begin writing configuration DB transaction.
+.TP
+\fBconf\-commit\fP
+Commit configuration DB transaction.
+.TP
+\fBconf\-abort\fP
+Rollback configuration DB transaction.
+.TP
+\fBconf\-set\fP \fIsection\fP[\fB[\fP\fIid\fP\fB]\fP][\fB\&.\fP\fIitem\fP] [\fBdata\fP\&...]
+Set item(s) in configuration DB. Requires active writing transaction.
+.TP
+\fBconf\-del\fP \fIsection\fP[\fB[\fP\fIid\fP\fB]\fP][\fB\&.\fP\fIitem\fP] [\fBdata\fP\&...]
+Delete item(s) from configuration DB. Requires active writing transaction.
+.TP
+\fBconf\-get\fP \fIsection\fP[\fB[\fP\fIid\fP\fB]\fP][\fB\&.\fP\fIitem\fP] [\fBcurrent\fP]
+Get item(s) from configuration DB. Use \fBcurrent\fP option to read the
+current configuration (no active writing transaction is required).
 .UNINDENT
 .SH EXAMPLES
 .SS Setup a keyfile for remote control
@@ -160,6 +179,53 @@ $ knotc \-s 127.0.0.1 \-k knotc.key reload
 .nf
 .ft C
 $ knotc \-c knot.conf flush
+.ft P
+.fi
+.UNINDENT
+.UNINDENT
+.SS Get the current server configuration
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.nf
+.ft C
+$ knotc conf\-get server current
+.ft P
+.fi
+.UNINDENT
+.UNINDENT
+.SS Get list of the current zones
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.nf
+.ft C
+$ knotc conf\-get zone current
+.ft P
+.fi
+.UNINDENT
+.UNINDENT
+.SS Get master remotes for example.com zone
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.nf
+.ft C
+$ knotc conf\-get zone[example.com].master current
+.ft P
+.fi
+.UNINDENT
+.UNINDENT
+.SS Add example.eu zone with zonefile location
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.nf
+.ft C
+$ knotc conf\-edit
+$ knotc conf\-set zone[example.eu]
+$ knotc conf\-set zone[example.eu].file "/var/zones/example.eu.zone"
+$ knotc conf\-commit
 .ft P
 .fi
 .UNINDENT

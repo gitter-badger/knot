@@ -89,6 +89,25 @@ zones.
 **export** *file*
   Export configuration database to file.
 
+**conf-edit**
+  Begin writing configuration DB transaction.
+
+**conf-commit**
+  Commit configuration DB transaction.
+
+**conf-abort**
+  Rollback configuration DB transaction.
+
+**conf-set** *section*\ [**[**\ *id*\ **]**\ ][**.**\ *item*] [**data**...]
+  Set item(s) in configuration DB. Requires active writing transaction.
+
+**conf-del** *section*\ [**[**\ *id*\ **]**\ ][**.**\ *item*] [**data**...]
+  Delete item(s) from configuration DB. Requires active writing transaction.
+
+**conf-get** *section*\ [**[**\ *id*\ **]**\ ][**.**\ *item*] [**current**]
+  Get item(s) from configuration DB. Use **current** option to read the
+  current configuration (no active writing transaction is required).
+
 Examples
 --------
 
@@ -118,6 +137,37 @@ Flush all zones locally
 ::
 
   $ knotc -c knot.conf flush
+
+Get the current server configuration
+....................................
+
+::
+
+  $ knotc conf-get server current
+
+Get list of the current zones
+.............................
+
+::
+
+  $ knotc conf-get zone current
+
+Get master remotes for example.com zone
+.......................................
+
+::
+
+  $ knotc conf-get zone[example.com].master current
+
+Add example.eu zone with zonefile location
+..........................................
+
+::
+
+  $ knotc conf-edit
+  $ knotc conf-set zone[example.eu]
+  $ knotc conf-set zone[example.eu].file "/var/zones/example.eu.zone"
+  $ knotc conf-commit
 
 See Also
 --------
