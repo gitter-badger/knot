@@ -462,9 +462,11 @@ static int track_ifaces(ifacelist_t *ifaces, fd_set *set, int *maxfd, int *minfd
 	iface_t *iface = NULL;
 	WALK_LIST(iface, ifaces->l) {
 		int fd = iface->fd[IO_UDP];
-		*maxfd = MAX(fd, *maxfd);
-		*minfd = MIN(fd, *minfd);
-		FD_SET(fd, set);
+		if (fd >= 0) {
+			*maxfd = MAX(fd, *maxfd);
+			*minfd = MIN(fd, *minfd);
+			FD_SET(fd, set);
+		}
 	}
 
 	return KNOT_EOK;

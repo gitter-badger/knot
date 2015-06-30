@@ -26,6 +26,7 @@
 #include "libknot/errcode.h"
 #include "knot/common/debug.h"
 #include "knot/common/trim.h"
+#include "knot/server/initsys.h"
 #include "knot/server/server.h"
 #include "knot/server/udp-handler.h"
 #include "knot/server/tcp-handler.h"
@@ -219,12 +220,49 @@ static void remove_ifacelist(struct ref *p)
 }
 
 /*!
+ * \brief Wait for readers that are reconfiguring right now.
+ */
+static void reconfigure_wait_reload(server_t *s)
+{
+	/*! \note This subsystem will be reworked in #239 */
+	for (unsigned proto = IO_UDP; proto <= IO_TCP; ++proto) {
+		dt_unit_t *tu = s->handler[proto].unit;
+		iohandler_t *ioh = &s->handler[proto];
+		for (unsigned i = 0; i < tu->size; ++i) {
+			while (ioh->thread_state[i] & ServerReload) {
+				sleep(1);
+			}
+		}
+	}
+}
+
+/*!
+ * \brief Trigger reconfiguration of threads, increasing interface list refs.
+ */
+static void reconfigure_trigger_reload(server_t *s, ifacelist_t *newlist)
+{
+	unsigned thread_count = 0;
+	for (unsigned proto = IO_UDP; proto <= IO_TCP; ++proto) {
+		dt_unit_t *tu = s->handler[proto].unit;
+		for (unsigned i = 0; i < tu->size; ++i) {
+			ref_retain(&newlist->ref);
+			s->handler[proto].thread_state[i] |= ServerReload;
+			s->handler[proto].thread_id[i] = thread_count++;
+			if (s->state & ServerRunning) {
+				dt_activate(tu->threads[i]);
+				dt_signalize(tu->threads[i], SIGALRM);
+			}
+		}
+	}
+}
+
+/*!
  * \brief Update bound sockets according to configuration.
  *
  * \param server Server instance.
  * \return number of added sockets.
  */
-static int reconfigure_sockets(conf_t *conf, server_t *s)
+static int reconfigure_sockets_legacy(conf_t *conf, server_t *s)
 {
 	/* Prepare helper lists. */
 	int bound = 0;
@@ -279,7 +317,7 @@ static int reconfigure_sockets(conf_t *conf, server_t *s)
 
 		/* Move to new list. */
 		if (m) {
-			add_tail(&newlist->l, (node_t *)m);
+			add_tail(&newlist->l, &m->n);
 			++bound;
 		}
 
@@ -287,39 +325,124 @@ static int reconfigure_sockets(conf_t *conf, server_t *s)
 	}
 	free(rundir);
 
-	/* Wait for readers that are reconfiguring right now. */
-	/*! \note This subsystem will be reworked in #239 */
-	for (unsigned proto = IO_UDP; proto <= IO_TCP; ++proto) {
-		dt_unit_t *tu = s->handler[proto].unit;
-		iohandler_t *ioh = &s->handler[proto];
-		for (unsigned i = 0; i < tu->size; ++i) {
-			while (ioh->thread_state[i] & ServerReload) {
-				sleep(1);
-			}
-		}
-	}
-
-	/* Publish new list. */
+	/* Publish new list and reconfigure threads. */
+	reconfigure_wait_reload(s);
 	s->ifaces = newlist;
-
-	/* Update TCP+UDP ifacelist (reload all threads). */
-	unsigned thread_count = 0;
-	for (unsigned proto = IO_UDP; proto <= IO_TCP; ++proto) {
-		dt_unit_t *tu = s->handler[proto].unit;
-		for (unsigned i = 0; i < tu->size; ++i) {
-			ref_retain((ref_t *)newlist);
-			s->handler[proto].thread_state[i] |= ServerReload;
-			s->handler[proto].thread_id[i] = thread_count++;
-			if (s->state & ServerRunning) {
-				dt_activate(tu->threads[i]);
-				dt_signalize(tu->threads[i], SIGALRM);
-			}
-		}
-	}
+	reconfigure_trigger_reload(s, newlist);
 
 	ref_release(&oldlist->ref);
 
 	return bound;
+}
+
+static int socket_type(int fd)
+{
+	int type = 0;
+	socklen_t size = sizeof(type);
+
+	if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) == 0) {
+		assert(size == sizeof(type));
+		return type;
+	} else {
+		return 0;
+	}
+}
+
+static void socket_address(int fd, struct sockaddr_storage *addr)
+{
+	socklen_t len = sizeof(*addr);
+	memset(addr, 0, len);
+	getsockname(fd, (struct sockaddr *)addr, &len);
+}
+
+static bool socket_supported(int family, int type)
+{
+	return (family == AF_INET || family == AF_INET6) &&
+	       (type == SOCK_DGRAM || type == SOCK_STREAM);
+}
+
+static int reconfigure_sockets_initsys(conf_t *conf, server_t *server)
+{
+	if (server->ifaces) {
+		log_info("socket activation, will not reconfigure sockets");
+		return KNOT_EOK;
+	}
+
+	const int fds_first = initsys_fds_first();
+	const int fds_count = initsys_fds_count();
+
+	if (fds_count < 0) {
+		log_error("socket activation, failed to retrieve sockets");
+		return KNOT_ERROR;
+	}
+
+	ifacelist_t *ifaces = malloc(sizeof(ifacelist_t));
+	if (!ifaces) {
+		return KNOT_ENOMEM;
+	}
+
+	init_list(&ifaces->l);
+	ref_init(&ifaces->ref, &remove_ifacelist);
+	ref_retain(&ifaces->ref);
+
+	int configured = 0;
+
+	for (int fd = fds_first; fd < fds_first + fds_count; fd++) {
+		iface_t *iface = calloc(1, sizeof(*iface));
+		if (!iface) {
+			ref_release(&ifaces->ref);
+			return KNOT_ENOMEM;
+		}
+
+		// get socket address, check validity
+
+		socket_address(fd, &iface->addr);
+		int type = socket_type(fd);
+
+		if (!socket_supported(iface->addr.ss_family, type)) {
+			free(iface);
+			continue;
+		}
+
+		// configure interfaces
+
+		if (fcntl(fd, F_SETFL, O_NONBLOCK) != 0) {
+			free(iface);
+			continue;
+		}
+
+		iface->fd[IO_UDP] = (type == SOCK_DGRAM  ? fd : -1);
+		iface->fd[IO_TCP] = (type == SOCK_STREAM ? fd : -1);
+
+		add_tail(&ifaces->l, &iface->n);
+		configured += 1;
+	}
+
+	int priority;
+	if (configured == 0) {
+		priority = LOG_ERR;
+	} else if (configured == fds_count) {
+		priority = LOG_INFO;
+	} else {
+		priority = LOG_WARNING;
+	}
+
+	log_msg(priority, "socket activation, configured %d sockets out of %d",
+	        configured, fds_count);
+
+	server->ifaces = ifaces;
+	reconfigure_trigger_reload(server, ifaces);
+
+	return configured > 0 ? KNOT_EOK : KNOT_ERROR;
+}
+
+static int reconfigure_sockets(conf_t *conf, server_t *server)
+{
+	if (initsys_socket_activated()) {
+		return reconfigure_sockets_initsys(conf, server);
+	} else {
+		return reconfigure_sockets_legacy(conf, server);
+	}
 }
 
 int server_init(server_t *server, int bg_workers)
@@ -570,8 +693,6 @@ static int reconfigure_threads(conf_t *conf, server_t *server)
 			return ret;
 		}
 
-		/* Create at least CONFIG_XFERS threads for TCP for faster
-		 * processing of massive bootstrap queries. */
 		ret = server_init_handler(server, IO_TCP, conf_tcp_threads(conf),
 		                          &tcp_master, NULL);
 		if (ret != KNOT_EOK) {
@@ -713,7 +834,10 @@ ref_t *server_set_ifaces(server_t *s, fdset_t *fds, int type)
 	fdset_clear(fds);
 	if (s->ifaces) {
 		WALK_LIST(i, s->ifaces->l) {
-			fdset_add(fds, i->fd[type], POLLIN, NULL);
+			int fd = i->fd[type];
+			if (fd >= 0) {
+				fdset_add(fds, fd, POLLIN, NULL);
+			}
 		}
 
 	}
