@@ -23,6 +23,7 @@
 #include "knot/common/fdset.h"
 #include "knot/common/log.h"
 #include "knot/conf/conf.h"
+#include "knot/conf/confdb.h"
 #include "knot/conf/edit.h"
 #include "knot/ctl/remote.h"
 #include "knot/dnssec/zone-sign.h"
@@ -34,6 +35,7 @@
 #include "libknot/internal/mem.h"
 #include "libknot/internal/net.h"
 #include "libknot/internal/strlcpy.h"
+#include "libknot/yparser/yptrafo.h"
 
 #define KNOT_CTL_REALM "knot."
 #define KNOT_CTL_REALM_EXT ("." KNOT_CTL_REALM)
@@ -689,6 +691,112 @@ static int remote_c_conf_del(server_t *s, remote_cmdargs_t *a)
 	return ret;
 }
 
+static int conf_get_fcn(conf_edit_get_params_t *params)
+{
+	remote_cmdargs_t *a = (remote_cmdargs_t *)params->misc;
+
+	char buf[CMDARGS_ALLOC_BLOCK];
+	size_t len = sizeof(buf);
+	int ret;
+
+	// Get textual id.
+	if (params->id_len > 0) {
+		ret = yp_item_to_txt(params->key0->var.g.id, params->id,
+		                     params->id_len, buf, &len, YP_SNOQUOTE);
+		if (ret != KNOT_EOK) {
+			return ret;
+		}
+	}
+
+	// Format key part.
+	char *key = sprintf_alloc(
+		"%s%.*s%s%.*s%s%s%.*s%s",
+		(params->first_data ? "" : "\n"),
+		(int)params->key0->name[0], params->key0->name + 1,
+		(params->id_len > 0 ? "[" : ""),
+		(params->id_len > 0 ? (int)len : 0),
+		(params->id_len > 0 ? buf : ""),
+		(params->id_len > 0 ? "]" : ""),
+		(params->key1 != NULL ? "." : ""),
+		(params->key1 != NULL ? (int)params->key1->name[0] : 0),
+		(params->key1 != NULL ? params->key1->name + 1 : ""),
+		(params->key1 != NULL ? " = " : ""));
+	if (key == NULL) {
+		return KNOT_ENOMEM;
+	}
+
+	params->first_data = false;
+
+	size_t key_len = strlen(key);
+
+	ret = cmdargs_assure_avail(a, key_len);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	// Copy key part.
+	memcpy(a->response + a->response_size, key, key_len);
+	a->response_size += key_len;
+
+	// Check for data.
+	if (params->data == NULL) {
+		return KNOT_EOK;
+	}
+	assert(params->key1 != NULL);
+
+	if (params->key1->flags & YP_FMULTI) {
+		size_t values = conf_val_count(params->data);
+		for (size_t i = 0; i < values; i++) {
+			if (i > 0) {
+				*(a->response + a->response_size) = ' ';
+				a->response_size++;
+			}
+
+			len = sizeof(buf);
+			conf_db_val(params->data);
+
+			// Get textual data.
+			ret = yp_item_to_txt(params->key1, params->data->data,
+			                     params->data->len, buf, &len, YP_SNONE);
+			if (ret != KNOT_EOK) {
+				return ret;
+			}
+
+			ret = cmdargs_assure_avail(a, len + 1);
+			if (ret != KNOT_EOK) {
+				return ret;
+			}
+
+			// Copy data part.
+			memcpy(a->response + a->response_size, buf, len);
+			a->response_size += len;
+
+			conf_db_val_next(params->data);
+		}
+	} else {
+		len = sizeof(buf);
+		conf_db_val(params->data);
+
+		// Get textual data.
+		ret = yp_item_to_txt(params->key1, params->data->data,
+				     params->data->len, buf, &len, YP_SNONE);
+		if (ret != KNOT_EOK) {
+			return ret;
+		}
+
+		ret = cmdargs_assure_avail(a, len + 1);
+		if (ret != KNOT_EOK) {
+			return ret;
+		}
+
+		// Copy data part.
+		memcpy(a->response + a->response_size, buf, len);
+		a->response_size += len;
+	}
+
+	return KNOT_EOK;
+}
+
 /*!
  * \brief Remote command 'conf-get' handler.
  */
@@ -701,7 +809,39 @@ static int remote_c_conf_get(server_t *s, remote_cmdargs_t *a)
 		return KNOT_EINVAL;
 	}
 
-	return KNOT_CTL_ACCEPTED;
+	char *key = (char *)remote_get_txt(&a->arg[0], 0, NULL);
+
+	// Split key path.
+	char *key0, *key1, *id;
+	int ret = parse_conf_key(key, &key0, &id, &key1);
+	if (ret != KNOT_EOK) {
+		return ret;
+	}
+
+	// Get db scope.
+	bool get_current = false;
+	if (a->argc == 2) {
+		const char *current = "current";
+		char *scope = (char *)remote_get_txt(&a->arg[1], 0, NULL);
+
+		if (strcmp(scope, current) == 0) {
+			get_current = true;
+		}
+
+		free(scope);
+	}
+
+	conf_edit_get_params_t params = {
+		.first_data = true,
+		.misc = a
+	};
+
+	// Get item(s) value.
+	ret = conf_edit_get(key0, key1, id, get_current, conf_get_fcn, &params);
+
+	free(key);
+
+	return ret;
 }
 
 /*!
