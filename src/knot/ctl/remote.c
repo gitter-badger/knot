@@ -1391,7 +1391,7 @@ int remote_create_txt(knot_rrset_t *rr, const char *str, size_t str_len,
 	/* Maximal chunk size. */
 	const size_t K = 255;
 	/* Number of chunks (ceiling operation). */
-	unsigned chunks = (str_len + K - 1)/ K;
+	const size_t chunks = (str_len + K - 1)/ K;
 	/* Total raw chunk length. */
 	const size_t raw_len = sizeof(uint8_t) + sizeof(index) + str_len + chunks;
 
@@ -1406,23 +1406,25 @@ int remote_create_txt(knot_rrset_t *rr, const char *str, size_t str_len,
 	wire_write_u16(out, index);
 	out += sizeof(index);
 
-	/* Write leading full chunks. */
-	for (size_t i = 0; i < chunks - 1; i++) {
-		/* Maximal chunk length. */
-		*out++ = (uint8_t)K;
-		/* Data chunk. */
-		memcpy(out, in, K);
-		out += K;
-		in += K;
-	}
+	if (chunks > 0) {
+		/* Write leading full chunks. */
+		for (size_t i = 0; i < chunks - 1; i++) {
+			/* Maximal chunk length. */
+			*out++ = (uint8_t)K;
+			/* Data chunk. */
+			memcpy(out, in, K);
+			out += K;
+			in += K;
+		}
 
-	/* Write last chunk. */
-	const size_t rest = str + str_len - in;
-	assert(rest <= K);
-	/* Last chunk length. */
-	*out++ = (uint8_t)rest;
-	/* Last data chunk. */
-	memcpy(out, in, rest);
+		/* Write last chunk. */
+		const size_t rest = str + str_len - in;
+		assert(rest <= K);
+		/* Last chunk length. */
+		*out++ = (uint8_t)rest;
+		/* Last data chunk. */
+		memcpy(out, in, rest);
+	}
 
 	return knot_rrset_add_rdata(rr, raw, raw_len, 0, NULL);
 }
