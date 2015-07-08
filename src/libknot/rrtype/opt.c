@@ -113,7 +113,7 @@ uint8_t knot_edns_get_ext_rcode(const knot_rrset_t *opt_rr)
 	// TTL is stored in machine byte order. Convert it to wire order first.
 	wire_ctx_write_u32(&w, knot_rrset_ttl(opt_rr));
 	wire_ctx_setpos(&w, EDNS_OFFSET_RCODE);
-	// don't check for error, no way to return it
+	// return zero if error occurs
 	return wire_ctx_read_u8(&w);
 }
 
@@ -210,7 +210,7 @@ static uint8_t *find_option(knot_rdata_t *rdata, uint16_t opt_code)
 		}
 
 		uint16_t opt_len = wire_ctx_read_u16(&wire);
-		wire_ctx_seek(&wire, opt_len);
+		wire_ctx_skip(&wire, opt_len);
 	}
 
 	return NULL;
@@ -299,7 +299,7 @@ bool knot_edns_check_record(knot_rrset_t *opt_rr)
 	while (wire_ctx_available(&wire) > 0 && wire.error == KNOT_EOK) {
 		wire_ctx_read_u16(&wire); // code
 		uint16_t opt_len = wire_ctx_read_u16(&wire); // length
-		wire_ctx_seek(&wire, opt_len); // data
+		wire_ctx_skip(&wire, opt_len); // data
 	}
 
 	return wire.error == KNOT_EOK;

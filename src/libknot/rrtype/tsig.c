@@ -75,35 +75,35 @@ static uint8_t* rdata_seek(const knot_rrset_t *rr, tsig_off_t id, size_t nb)
 	switch(id) {
 	case TSIG_ALGNAME_O: break;
 	case TSIG_TSIGNED_O:
-		wire_ctx_seek(&wire, alg_len); break;
+		wire_ctx_skip(&wire, alg_len); break;
 	case TSIG_FUDGE_O:
-		wire_ctx_seek(&wire, alg_len + 3 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, alg_len + 3 * sizeof(uint16_t));
 		break;
 	case TSIG_MACLEN_O:
-		wire_ctx_seek(&wire, alg_len + 4 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, alg_len + 4 * sizeof(uint16_t));
 		break;
 	case TSIG_MAC_O:
-		wire_ctx_seek(&wire, alg_len + 5 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, alg_len + 5 * sizeof(uint16_t));
 		break;
 	case TSIG_ORIGID_O:
-		wire_ctx_seek(&wire, alg_len + 4 * sizeof(uint16_t));
-		wire_ctx_seek(&wire, wire_ctx_read_u16(&wire));
+		wire_ctx_skip(&wire, alg_len + 4 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, wire_ctx_read_u16(&wire));
 		break;
 
 	case TSIG_ERROR_O:
-		wire_ctx_seek(&wire, alg_len + 4 * sizeof(uint16_t));
-		wire_ctx_seek(&wire, wire_ctx_read_u16(&wire));
-		wire_ctx_seek(&wire, sizeof(uint16_t));
+		wire_ctx_skip(&wire, alg_len + 4 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, wire_ctx_read_u16(&wire));
+		wire_ctx_skip(&wire, sizeof(uint16_t));
 		break;
 	case TSIG_OLEN_O:
-		wire_ctx_seek(&wire, alg_len + 4 * sizeof(uint16_t));
-		wire_ctx_seek(&wire, wire_ctx_read_u16(&wire));
-		wire_ctx_seek(&wire, 2 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, alg_len + 4 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, wire_ctx_read_u16(&wire));
+		wire_ctx_skip(&wire, 2 * sizeof(uint16_t));
 		break;
 	case TSIG_OTHER_O:
-		wire_ctx_seek(&wire, alg_len + 4 * sizeof(uint16_t));
-		wire_ctx_seek(&wire, wire_ctx_read_u16(&wire));
-		wire_ctx_seek(&wire, 3 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, alg_len + 4 * sizeof(uint16_t));
+		wire_ctx_skip(&wire, wire_ctx_read_u16(&wire));
+		wire_ctx_skip(&wire, 3 * sizeof(uint16_t));
 		break;
 	}
 

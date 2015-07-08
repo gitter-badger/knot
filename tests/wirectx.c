@@ -65,7 +65,7 @@ void read_to_limit(void **state)
 
 	assert_int_equal(wire.error, KNOT_EOK);
 
-	wire_ctx_seek(&wire, -4);
+	wire_ctx_skip(&wire, -4);
 
 	assert_int_equal(0x00, wire_ctx_read_u8(&wire));
 	assert_int_equal(0x2a, wire_ctx_read_u8(&wire));
@@ -93,7 +93,7 @@ void assert_check(void **state)
 	expect_assert_failure(wire_ctx_available(NULL));
 	expect_assert_failure(wire_ctx_tell(NULL));
 	expect_assert_failure(wire_ctx_setpos(NULL, 0));
-	expect_assert_failure(wire_ctx_seek(NULL, 0));
+	expect_assert_failure(wire_ctx_skip(NULL, 0));
 	expect_assert_failure(wire_ctx_can_write(NULL, 0));
 	expect_assert_failure(wire_ctx_clear(NULL));
 	expect_assert_failure(wire_ctx_read_u8(NULL));
@@ -161,7 +161,7 @@ void seek_before(void **state)
 	uint32_t buf;
 	wire_ctx_t wire = wire_ctx_init((uint8_t*)&buf, sizeof(buf));
 
-	wire_ctx_seek(&wire, -1);
+	wire_ctx_skip(&wire, -1);
 	assert_ptr_equal(wire.wire, wire.position);
 	assert_int_equal(0, wire_ctx_tell(&wire));
 }
@@ -173,7 +173,7 @@ void available(void **state)
 
 	assert_int_equal(wire_ctx_available(&wire), sizeof(buf));
 
-	wire_ctx_seek(&wire, sizeof(buf)*sizeof(buf));
+	wire_ctx_skip(&wire, sizeof(buf)*sizeof(buf));
 
 	assert_int_equal(wire_ctx_available(&wire), 0);
 }

@@ -230,7 +230,7 @@ static int nsec3_fill_rdata(uint8_t *rdata, size_t rdata_len,
 	if (next_hashed) {
 		wire_ctx_write(&wire, next_hashed, hash_length);
 	} else {
-		wire_ctx_seek(&wire, hash_length);
+		wire_ctx_skip(&wire, hash_length);
 	}
 
 	if (wire.error != KNOT_EOK) {

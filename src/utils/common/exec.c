@@ -267,7 +267,7 @@ static void print_section_opt(const knot_rrset_t *rr, const uint8_t rcode)
 			short_hex_print(opt_data, opt_len);
 		}
 
-		wire_ctx_seek(&wire, opt_len);
+		wire_ctx_skip(&wire, opt_len);
 	}
 }
 

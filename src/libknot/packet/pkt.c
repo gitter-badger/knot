@@ -485,7 +485,7 @@ int knot_pkt_put_question(knot_pkt_t *pkt, const knot_dname_t *qname, uint16_t q
 
 	/* Copy name wireformat. */
 	wire_ctx_t wire = wire_ctx_init(pkt->wire, pkt->max_size);
-	wire_ctx_seek(&wire, KNOT_WIRE_HEADER_SIZE);
+	wire_ctx_skip(&wire, KNOT_WIRE_HEADER_SIZE);
 
 	int qname_len = knot_dname_to_wire(wire.position,
 					   qname, wire_ctx_available(&wire));
@@ -493,7 +493,7 @@ int knot_pkt_put_question(knot_pkt_t *pkt, const knot_dname_t *qname, uint16_t q
 		return qname_len;
 	}
 
-	wire_ctx_seek(&wire, qname_len);
+	wire_ctx_skip(&wire, qname_len);
 	/* Copy QTYPE & QCLASS */
 	wire_ctx_write_u16(&wire, qtype);
 	wire_ctx_write_u16(&wire, qclass);

@@ -104,7 +104,7 @@ static inline void wire_ctx_setpos(wire_ctx_t *ctx, size_t offset)
  *
  * \note Cannot seek before actual data
  */
-static inline void wire_ctx_seek(wire_ctx_t *ctx, ssize_t offset)
+static inline void wire_ctx_skip(wire_ctx_t *ctx, ssize_t offset)
 {
 	assert(ctx);
 	ctx->position += offset;
