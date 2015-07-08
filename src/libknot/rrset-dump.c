@@ -945,7 +945,7 @@ static void wire_loc_to_str(rrset_dump_params_t *p)
 	uint32_t alt_w = wire_ctx_read_u32(&wire);
 
 	// Check if all reads are correct.
-	if (wire.error) {
+	if (wire.error != KNOT_EOK) {
 		return;
 	}
 

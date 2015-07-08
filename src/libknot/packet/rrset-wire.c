@@ -545,7 +545,7 @@ static int parse_header(const uint8_t *pkt_wire, size_t *pos, size_t pkt_size,
 
 	*pos = wire.position - wire.wire;
 
-	if (wire.error) {
+	if (wire.error != KNOT_EOK) {
 		knot_dname_free(&owner, mm);
 		return wire.error;
 	}

@@ -209,10 +209,10 @@ static size_t nsec3_rdata_size(const knot_nsec3_params_t *params,
  *
  * \note Content of next hash field is not changed.
  */
-static void nsec3_fill_rdata(uint8_t *rdata, size_t rdata_len,
-			     const knot_nsec3_params_t *params,
-			     const dnssec_nsec_bitmap_t *rr_types,
-			     const uint8_t *next_hashed, uint32_t ttl)
+static int nsec3_fill_rdata(uint8_t *rdata, size_t rdata_len,
+                             const knot_nsec3_params_t *params,
+                             const dnssec_nsec_bitmap_t *rr_types,
+                             const uint8_t *next_hashed, uint32_t ttl)
 {
 	assert(rdata);
 	assert(params);
@@ -231,6 +231,10 @@ static void nsec3_fill_rdata(uint8_t *rdata, size_t rdata_len,
 		wire_ctx_write(&wire, next_hashed, hash_length);
 	} else {
 		wire_ctx_seek(&wire, hash_length);
+	}
+
+	if (wire.error != KNOT_EOK) {
+		return wire.error;
 	}
 
 	dnssec_nsec_bitmap_write(rr_types, wire.position);  // RR types bit map
@@ -263,7 +267,11 @@ static int create_nsec3_rrset(knot_rrset_t *rrset,
 
 	size_t rdata_size = nsec3_rdata_size(params, rr_types);
 	uint8_t rdata[rdata_size];
-	nsec3_fill_rdata(rdata, rdata_size, params, rr_types, next_hashed, ttl);
+	int r = nsec3_fill_rdata(rdata, rdata_size, params, rr_types,
+	                         next_hashed, ttl);
+	if (r != KNOT_EOK) {
+		return NULL;
+	}
 
 	return knot_rrset_add_rdata(rrset, rdata, rdata_size, ttl, NULL);
 }

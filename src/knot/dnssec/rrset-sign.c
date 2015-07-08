@@ -97,7 +97,6 @@ static int rrsig_write_rdata(uint8_t *rdata, size_t rdata_len,
 
 	wire_ctx_t wire = wire_ctx_init(rdata, rdata_len);
 
-
 	wire_ctx_write_u16(&wire, covered_type);	// type covered
 	wire_ctx_write_u8(&wire, algorithm);		// algorithm
 	wire_ctx_write_u8(&wire, owner_labels);		// labels
@@ -111,7 +110,7 @@ static int rrsig_write_rdata(uint8_t *rdata, size_t rdata_len,
 	assert(signer);
 	wire_ctx_write(&wire, signer, knot_dname_size(signer));	// signer
 
-	if (wire.error) {
+	if (wire.error != KNOT_EOK) {
 		return wire.error;
 	}
 

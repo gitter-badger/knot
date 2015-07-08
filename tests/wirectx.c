@@ -75,8 +75,6 @@ void read_to_limit(void **state)
 	assert_int_equal(wire.error, KNOT_EOK);
 }
 
-
-
 void write_readonly(void **state)
 {
 	const uint32_t buf=42;

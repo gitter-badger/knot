@@ -109,7 +109,7 @@ uint8_t knot_edns_get_ext_rcode(const knot_rrset_t *opt_rr)
 {
 	assert(opt_rr != NULL);
 	uint32_t ttl = 0;
-	wire_ctx_t w = wire_ctx_init((uint8_t*) &ttl, sizeof(ttl));
+	wire_ctx_t w = wire_ctx_init((uint8_t *) &ttl, sizeof(ttl));
 	// TTL is stored in machine byte order. Convert it to wire order first.
 	wire_ctx_write_u32(&w, knot_rrset_ttl(opt_rr));
 	wire_ctx_setpos(&w, EDNS_OFFSET_RCODE);
@@ -199,9 +199,9 @@ static uint8_t *find_option(knot_rdata_t *rdata, uint16_t opt_code)
 {
 	wire_ctx_t wire = wire_ctx_init_rdata(rdata);
 
-	while (wire_ctx_available(&wire)) {
+	while (wire_ctx_available(&wire) > 0) {
 		uint16_t code = wire_ctx_read_u16(&wire);
-		if (wire.error) {
+		if (wire.error != KNOT_EOK) {
 			break;
 		}
 
@@ -239,16 +239,16 @@ int knot_edns_add_option(knot_rrset_t *opt_rr, uint16_t code,
 
 	uint8_t new_data[new_data_len];
 
-	wire_ctx_t w_new = wire_ctx_init(new_data, new_data_len);
-	wire_ctx_write(&w_new, old_data, old_data_len);
+	wire_ctx_t wire = wire_ctx_init(new_data, new_data_len);
+	wire_ctx_write(&wire, old_data, old_data_len);
 	// write length and code in wireformat (convert endian)
-	wire_ctx_write_u16(&w_new, code);
-	wire_ctx_write_u16(&w_new, length);
+	wire_ctx_write_u16(&wire, code);
+	wire_ctx_write_u16(&wire, length);
 	// write the option data
-	wire_ctx_write(&w_new, data, length);
+	wire_ctx_write(&wire, data, length);
 
-	if (w_new.error) {
-		return w_new.error;
+	if (wire.error) {
+		return wire.error;
 	}
 
 	/* 2) Replace the RDATA in the RRSet. */
@@ -296,13 +296,12 @@ bool knot_edns_check_record(knot_rrset_t *opt_rr)
 
 	/* RFC2671 4.4: {uint16_t code, uint16_t len, data} */
 	// read data to the end or error
-	while (wire_ctx_available(&wire) && wire.error == KNOT_EOK) {
+	while (wire_ctx_available(&wire) > 0 && wire.error == KNOT_EOK) {
 		wire_ctx_read_u16(&wire); // code
 		uint16_t opt_len = wire_ctx_read_u16(&wire); // length
 		wire_ctx_seek(&wire, opt_len); // data
 	}
 
-	// If no error while reading, all data is correct
 	return wire.error == KNOT_EOK;
 }
 
@@ -339,7 +338,6 @@ int knot_edns_client_subnet_create(const knot_addr_family_t family,
 
 	// Zeroize trailing bits in the last byte.
 	if (modulo > 0 && addr_prefix_len > 0) {
-		// write without boundary checking
 		w_data.position[-1] &= 0xFF << (8 - modulo);
 	}
 
@@ -362,22 +360,21 @@ int knot_edns_client_subnet_parse(const uint8_t *data,
 		return KNOT_EINVAL;
 	}
 
-	wire_ctx_t w_data = wire_ctx_init_const(data, data_len);
-
-	*family = wire_ctx_read_u16(&w_data);
-	*src_mask = wire_ctx_read_u8(&w_data);
-	*dst_mask = wire_ctx_read_u8(&w_data);
-
-	size_t rest = wire_ctx_available(&w_data);
-
-	if (rest > *addr_len) {
+	int rest = data_len - sizeof(uint16_t) - 2 * sizeof(uint8_t);
+	if (rest < 0 || *addr_len < rest) {
 		return KNOT_ESPACE;
 	}
 
-	wire_ctx_read(&w_data, addr, rest);
+	wire_ctx_t wire = wire_ctx_init_const(data, data_len);
 
-	if (w_data.error) {
-		return w_data.error;
+	*family = wire_ctx_read_u16(&wire);
+	*src_mask = wire_ctx_read_u8(&wire);
+	*dst_mask = wire_ctx_read_u8(&wire);
+
+	wire_ctx_read(&wire, addr, rest);
+
+	if (wire.error != KNOT_EOK) {
+		return wire.error;
 	}
 
 	*addr_len = rest;

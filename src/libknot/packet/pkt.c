@@ -499,7 +499,7 @@ int knot_pkt_put_question(knot_pkt_t *pkt, const knot_dname_t *qname, uint16_t q
 	wire_ctx_write_u16(&wire, qclass);
 
 	/* Check errors. */
-	if (wire.error) {
+	if (wire.error != KNOT_EOK) {
 		return wire.error;
 	}
 

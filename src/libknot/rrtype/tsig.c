@@ -107,7 +107,7 @@ static uint8_t* rdata_seek(const knot_rrset_t *rr, tsig_off_t id, size_t nb)
 		break;
 	}
 
-	if (wire.error) {
+	if (wire.error != KNOT_EOK) {
 		return NULL;
 	}
 

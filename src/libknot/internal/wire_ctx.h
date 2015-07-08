@@ -33,7 +33,7 @@
 	mock_assert(!!(expression), #expression, __FILE__, __LINE__);
 #endif
 
-/**
+/*!
  * \brief Struct for keep position and size with wire data
  */
 typedef struct wire_ctx {
@@ -59,7 +59,7 @@ static inline wire_ctx_t wire_ctx_init(uint8_t *data, size_t size)
 	return result;
 }
 
-/**
+/*!
  * \brief Initialize strucuture from const data.
  *
  * Every write will fail on assertion. If assertion is disabled then
@@ -70,13 +70,8 @@ static inline wire_ctx_t wire_ctx_init_const(const uint8_t *data, size_t size)
 {
 	assert(data);
 
-	wire_ctx_t result = {
-		.wire = (uint8_t*) data,
-		.size = size,
-		.position = (uint8_t*) data,
-		.error = KNOT_EOK,
-		.readonly = true,
-	};
+	wire_ctx_t result = wire_ctx_init((uint8_t *) data, size);
+	result.readonly = true;
 	return result;
 }
 
@@ -86,7 +81,7 @@ static inline wire_ctx_t wire_ctx_init_rdata(const knot_rdata_t *rdata)
 	return wire_ctx_init_const(knot_rdata_data(rdata), knot_rdata_rdlen(rdata));
 }
 
-/**
+/*!
  * \brief Set whole data to zero.
  */
 static inline void wire_ctx_clear(wire_ctx_t *ctx)
@@ -95,7 +90,7 @@ static inline void wire_ctx_clear(wire_ctx_t *ctx)
 	memset(ctx->wire, 0, ctx->size);
 }
 
-/**
+/*!
  * \brief Set position offset from begin
  */
 static inline void wire_ctx_setpos(wire_ctx_t *ctx, size_t offset)
@@ -104,7 +99,7 @@ static inline void wire_ctx_setpos(wire_ctx_t *ctx, size_t offset)
 	ctx->position = ctx->wire + offset;
 }
 
-/**
+/*!
  * \brief Add offset to current position
  *
  * \note Cannot seek before actual data
@@ -118,7 +113,7 @@ static inline void wire_ctx_seek(wire_ctx_t *ctx, ssize_t offset)
 	}
 }
 
-/**
+/*!
  * \brief Gets actual position
  * \return position from begin
  */
@@ -128,7 +123,7 @@ static inline size_t wire_ctx_tell(wire_ctx_t *ctx)
 	return ctx->position - ctx->wire;
 }
 
-/**
+/*!
  * \brief Gets available bytes
  * \return Number of bytes to end
  */
@@ -278,7 +273,7 @@ static inline void wire_ctx_write_u64(wire_ctx_t *ctx, uint64_t value)
 }
 
 
-/**
+/*!
  * \brief Write data to wire without endian transaltion
  *
  * \note It is possible to pass NULL for data if size is zero. Memcpy with NULL
