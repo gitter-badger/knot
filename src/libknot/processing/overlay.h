@@ -27,67 +27,75 @@
 #include "libknot/processing/layer.h"
 
 /*! \brief Processsing overlay (list of aggregated FSMs). */
-struct knot_overlay {
-	int state;
+typedef struct knot_overlay {
+	knot_layer_state_t state;
 	list_t layers;
 	mm_ctx_t *mm;
-};
+} knot_overlay_t;
 
 /*!
  * \brief Initialize overlay and memory context.
  *
- * \param overlay
- * \param mm
+ * \param overlay Overlay context.
+ * \param mm Memory context.
  */
-void knot_overlay_init(struct knot_overlay *overlay, mm_ctx_t *mm);
+void knot_overlay_init(knot_overlay_t *overlay, mm_ctx_t *mm);
 
 /*!
  * \brief Clear structure nad free list of layers.
  *
- * \param overlay
+ * \param overlay Overlay context.
  */
-void knot_overlay_deinit(struct knot_overlay *overlay);
+void knot_overlay_deinit(knot_overlay_t *overlay);
 
 /*!
  * \brief Add an overlay on top of the list and begin execution.
  *
- * \fn knot_layer_begin
+ * \param overlay Overlay context.
+ * \param module Layer module.
+ * \param module_param Module parameters.
  *
- * \param overlay
- * \param module
- * \param module_param
- *
- * \return KNOT_EOK or an error
+ * \return KNOT_EOK or an error.
  */
-int knot_overlay_add(struct knot_overlay *overlay, const knot_layer_api_t *module,
+int knot_overlay_add(knot_overlay_t *overlay, const knot_layer_api_t *module,
                      void *module_param);
 
 /*!
  * \brief Reset layer processing.
  *
- * \fn knot_layer_reset
+ * \param overlay Overlay context.
+ *
+ * \return Overlay state.
  */
-int knot_overlay_reset(struct knot_overlay *overlay);
+knot_layer_state_t knot_overlay_reset(knot_overlay_t *overlay);
 
 /*!
  * \brief Finish layer processing.
  *
- * \fn knot_layer_finish
+ * \param overlay Overlay context.
+ *
+ * \return Overlay state.
  */
-int knot_overlay_finish(struct knot_overlay *overlay);
+knot_layer_state_t knot_overlay_finish(knot_overlay_t *overlay);
 
 /*!
  * \brief Add more data to layer processing.
  *
- * \fn knot_layer_consume
+ * \param overlay Overlay context.
+ * \param pkg Packet context.
+ *
+ * \return Overlay state.
  */
-int knot_overlay_consume(struct knot_overlay *overlay, knot_pkt_t *pkt);
+knot_layer_state_t knot_overlay_consume(knot_overlay_t *overlay, knot_pkt_t *pkt);
 
 /*!
  * \brief Generate output from layers.
  *
- * \fn knot_layer_produce
+ * \param overlay Overlay context.
+ * \param pkg Packet context.
+ *
+ * \return Overlay state.
  */
-int knot_overlay_produce(struct knot_overlay *overlay, knot_pkt_t *pkt);
+knot_layer_state_t knot_overlay_produce(knot_overlay_t *overlay, knot_pkt_t *pkt);
 
 /*! @} */

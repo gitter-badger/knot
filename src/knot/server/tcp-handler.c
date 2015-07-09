@@ -45,8 +45,8 @@
 #include "libknot/processing/overlay.h"
 
 /*! \brief TCP context data. */
-typedef struct tcp_context {
-	struct knot_overlay overlay;/*!< Query processing overlay. */
+typedef struct {
+	knot_overlay_t overlay;     /*!< Query processing overlay. */
 	server_t *server;           /*!< Name server structure. */
 	struct iovec iov[2];        /*!< TX/RX buffers. */
 	unsigned client_threshold;  /*!< Index of first TCP client. */
@@ -145,7 +145,7 @@ static int tcp_handle(tcp_context_t *tcp, int fd,
 
 	/* Input packet. */
 	(void) knot_pkt_parse(query, 0);
-	int state = knot_overlay_consume(&tcp->overlay, query);
+	knot_layer_state_t state = knot_overlay_consume(&tcp->overlay, query);
 
 	/* Resolve until NOOP or finished. */
 	ret = KNOT_EOK;

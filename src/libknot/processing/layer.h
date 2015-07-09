@@ -24,11 +24,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include "libknot/consts.h"
 #include "libknot/packet/pkt.h"
-#include "libknot/rrtype/tsig.h"
 #include "libknot/internal/lists.h"
 #include "libknot/internal/mempattern.h"
 
@@ -36,62 +32,65 @@
  *  Each state represents the state machine transition,
  *  and determines readiness for the next action.
  */
-enum knot_layer_state {
+typedef enum {
 	KNOT_STATE_NOOP    = 0,      /*!< N/A */
 	KNOT_STATE_CONSUME = 1 << 0, /*!< Consume data. */
 	KNOT_STATE_PRODUCE = 1 << 1, /*!< Produce data. */
 	KNOT_STATE_DONE    = 1 << 2, /*!< Finished. */
 	KNOT_STATE_FAIL    = 1 << 3  /*!< Error. */
-};
+} knot_layer_state_t;
 
-/* Forward declarations. */
-struct knot_layer_api;
+/* Forward declaration. */
+typedef struct knot_layer_api knot_layer_api_t;
 
 /*! \brief Packet processing context. */
-typedef struct knot_layer
-{
+typedef struct {
 	node_t node;
-	uint16_t state;  /* Bitmap of enum knot_layer_state. */
-	mm_ctx_t *mm;    /* Processing memory context. */
-	void *data;      /* Module specific. */
-	const struct knot_layer_api *api;
+	const knot_layer_api_t *api; /*!< Layer API. */
+	knot_layer_state_t state;    /*!< Layer state. */
+	mm_ctx_t *mm;                /*!< Processing memory context. */
+	void *data;                  /*!< Module specific. */
 } knot_layer_t;
 
 /*! \brief Packet processing module API. */
-typedef struct knot_layer_api {
+struct knot_layer_api {
 	int (*begin)(knot_layer_t *ctx, void *module_param);
 	int (*reset)(knot_layer_t *ctx);
 	int (*finish)(knot_layer_t *ctx);
 	int (*consume)(knot_layer_t *ctx, knot_pkt_t *pkt);
 	int (*produce)(knot_layer_t *ctx, knot_pkt_t *pkt);
 	int (*fail)(knot_layer_t *ctx, knot_pkt_t *pkt);
-	void *data;
-} knot_layer_api_t;
+};
 
 /*!
  * \brief Initialize packet processing context.
  *
- * \param ctx   Layer context.
+ * \param ctx Layer context.
+ * \param api Layer API.
  * \param param Parameters for given module.
- * \param api   Layer API.
- * \return (module specific state)
+ *
+ * \return Layer state.
  */
-int knot_layer_begin(knot_layer_t *ctx, const knot_layer_api_t *api, void *param);
+knot_layer_state_t knot_layer_begin(knot_layer_t *ctx, const knot_layer_api_t *api,
+                                    void *param);
 
 /*!
  * \brief Reset current packet processing context.
- * \param ctx   Layer context.
- * \return (module specific state)
+ *
+ * \param ctx Layer context.
+ *
+ * \return Layer state.
  */
-int knot_layer_reset(knot_layer_t *ctx);
+knot_layer_state_t knot_layer_reset(knot_layer_t *ctx);
 
 /*!
  * \brief Finish and close packet processing context.
  *
- * \param ctx   Layer context.
- * \return (module specific state)
+ * \param ctx Layer context.
+ *
+ * \return Layer state.
  */
-int knot_layer_finish(knot_layer_t *ctx);
+knot_layer_state_t knot_layer_finish(knot_layer_t *ctx);
 
 /*!
  * \brief Add more data to layer processing.
@@ -99,9 +98,9 @@ int knot_layer_finish(knot_layer_t *ctx);
  * \param ctx Layer context.
  * \param pkt Data packet.
  *
- * \return (module specific state)
+ * \return Layer state.
  */
-int knot_layer_consume(knot_layer_t *ctx, knot_pkt_t *pkt);
+knot_layer_state_t knot_layer_consume(knot_layer_t *ctx, knot_pkt_t *pkt);
 
 /*!
  * \brief Generate output from layer.
@@ -109,8 +108,8 @@ int knot_layer_consume(knot_layer_t *ctx, knot_pkt_t *pkt);
  * \param ctx Layer context.
  * \param pkt Data packet.
  *
- * \return (module specific state)
+ * \return Layer state.
  */
-int knot_layer_produce(knot_layer_t *ctx, knot_pkt_t *pkt);
+knot_layer_state_t knot_layer_produce(knot_layer_t *ctx, knot_pkt_t *pkt);
 
 /*! @} */

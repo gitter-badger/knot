@@ -14,14 +14,14 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "libknot/processing/overlay.h"
 #include "libknot/errcode.h"
+#include "libknot/processing/overlay.h"
 #include "libknot/internal/macros.h"
 
 /*! \note Macro for state-chaining layers. */
 #define ITERATE_LAYERS(overlay, func, ...) \
-	int state = overlay->state; \
-	struct knot_layer *layer = NULL; \
+	knot_layer_state_t state = overlay->state; \
+	knot_layer_t *layer = NULL; \
 	WALK_LIST(layer, (overlay)->layers) { \
 		layer->state = state; /* Pass-through state. */ \
 		state = (func)(layer, ##__VA_ARGS__); \
@@ -29,49 +29,49 @@
 	return overlay->state = state;
 
 _public_
-void knot_overlay_init(struct knot_overlay *overlay, mm_ctx_t *mm)
+void knot_overlay_init(knot_overlay_t *overlay, mm_ctx_t *mm)
 {
+	overlay->state = KNOT_STATE_NOOP;
 	init_list(&overlay->layers);
 	overlay->mm = mm;
-	overlay->state = KNOT_STATE_NOOP;
 }
 
 _public_
-void knot_overlay_deinit(struct knot_overlay *overlay)
+void knot_overlay_deinit(knot_overlay_t *overlay)
 {
-	struct knot_layer *layer = NULL, *next = NULL;
+	knot_layer_t *layer = NULL, *next = NULL;
 	WALK_LIST_DELSAFE(layer, next, overlay->layers) {
 		mm_free(overlay->mm, layer);
 	}
 }
 
 _public_
-int knot_overlay_add(struct knot_overlay *overlay, const knot_layer_api_t *module,
+int knot_overlay_add(knot_overlay_t *overlay, const knot_layer_api_t *module,
                      void *module_param)
 {
-	struct knot_layer *layer = mm_alloc(overlay->mm, sizeof(struct knot_layer));
+	knot_layer_t *layer = mm_alloc(overlay->mm, sizeof(knot_layer_t));
 	if (layer == NULL) {
 		return KNOT_ENOMEM;
 	}
 
-	memset(layer, 0, sizeof(struct knot_layer));
+	memset(layer, 0, sizeof(knot_layer_t));
 	layer->mm = overlay->mm;
 	layer->state = overlay->state;
-	add_tail(&overlay->layers, (node_t *)layer);
 
+	add_tail(&overlay->layers, (node_t *)layer);
 	overlay->state = knot_layer_begin(layer, module, module_param);
 
 	return KNOT_EOK;
 }
 
 _public_
-int knot_overlay_reset(struct knot_overlay *overlay)
+knot_layer_state_t knot_overlay_reset(knot_overlay_t *overlay)
 {
 	ITERATE_LAYERS(overlay, knot_layer_reset);
 }
 
 _public_
-int knot_overlay_finish(struct knot_overlay *overlay)
+knot_layer_state_t knot_overlay_finish(knot_overlay_t *overlay)
 {
 	/* Only in operable state. */
 	if (overlay->state == KNOT_STATE_NOOP) {
@@ -82,7 +82,7 @@ int knot_overlay_finish(struct knot_overlay *overlay)
 }
 
 _public_
-int knot_overlay_consume(struct knot_overlay *overlay, knot_pkt_t *pkt)
+knot_layer_state_t knot_overlay_consume(knot_overlay_t *overlay, knot_pkt_t *pkt)
 {
 	/* Only if expecting data. */
 	if (overlay->state != KNOT_STATE_CONSUME) {
@@ -93,7 +93,7 @@ int knot_overlay_consume(struct knot_overlay *overlay, knot_pkt_t *pkt)
 }
 
 _public_
-int knot_overlay_produce(struct knot_overlay *overlay, knot_pkt_t *pkt)
+knot_layer_state_t knot_overlay_produce(knot_overlay_t *overlay, knot_pkt_t *pkt)
 {
 	/* Only in operable state. */
 	if (overlay->state == KNOT_STATE_NOOP) {

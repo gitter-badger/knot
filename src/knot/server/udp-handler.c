@@ -54,10 +54,10 @@ enum {
 };
 
 /*! \brief UDP context data. */
-typedef struct udp_context {
-	struct knot_overlay overlay; /*!< Query processing overlay. */
-	server_t *server;            /*!< Name server structure. */
-	unsigned thread_id;          /*!< Thread identifier. */
+typedef struct {
+	knot_overlay_t overlay; /*!< Query processing overlay. */
+	server_t *server;       /*!< Name server structure. */
+	unsigned thread_id;     /*!< Thread identifier. */
 } udp_context_t;
 
 /* FD_COPY macro compat. */
@@ -135,7 +135,7 @@ void udp_handle(udp_context_t *udp, int fd, struct sockaddr_storage *ss,
 
 	/* Input packet. */
 	(void) knot_pkt_parse(query, 0);
-	int state = knot_overlay_consume(&udp->overlay, query);
+	knot_layer_state_t state = knot_overlay_consume(&udp->overlay, query);
 
 	/* Process answer. */
 	while (state & (KNOT_STATE_PRODUCE|KNOT_STATE_FAIL)) {

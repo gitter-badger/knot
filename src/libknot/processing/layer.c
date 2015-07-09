@@ -27,7 +27,8 @@
 	}
 
 _public_
-int knot_layer_begin(knot_layer_t *ctx, const knot_layer_api_t *api, void *param)
+knot_layer_state_t knot_layer_begin(knot_layer_t *ctx, const knot_layer_api_t *api,
+                                    void *param)
 {
 	ctx->api = api;
 
@@ -37,36 +38,37 @@ int knot_layer_begin(knot_layer_t *ctx, const knot_layer_api_t *api, void *param
 }
 
 _public_
-int knot_layer_reset(knot_layer_t *ctx)
+knot_layer_state_t knot_layer_reset(knot_layer_t *ctx)
 {
 	LAYER_CALL(ctx, reset);
+
 	return ctx->state;
 }
 
 _public_
-int knot_layer_finish(knot_layer_t *ctx)
+knot_layer_state_t knot_layer_finish(knot_layer_t *ctx)
 {
 	LAYER_CALL(ctx, finish);
+
 	return ctx->state;
 }
 
 _public_
-int knot_layer_consume(knot_layer_t *ctx, knot_pkt_t *pkt)
+knot_layer_state_t knot_layer_consume(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	LAYER_CALL(ctx, consume, pkt);
+
 	return ctx->state;
 }
 
 _public_
-int knot_layer_produce(knot_layer_t *ctx, knot_pkt_t *pkt)
+knot_layer_state_t knot_layer_produce(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
-	switch (ctx->state) {
-	case KNOT_STATE_FAIL: LAYER_CALL(ctx, fail, pkt); break;
-	case KNOT_STATE_PRODUCE:
-	default: LAYER_CALL(ctx, produce, pkt); break;
+	if (ctx->state != KNOT_STATE_FAIL) {
+		LAYER_CALL(ctx, produce, pkt);
+	} else {
+		LAYER_CALL(ctx, fail, pkt);
 	}
 
 	return ctx->state;
 }
-
-#undef LAYER_STATE_STR

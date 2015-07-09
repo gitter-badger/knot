@@ -8,7 +8,7 @@ data processors and state machines driving them.
 
 ### layer.h
 
-layer represents a set of functions implementing an interface, with 5 possible callbacks:
+layer represents a set of functions implementing an interface, with 6 possible callbacks:
 
 ```c
 	int begin(knot_layer_t *ctx, void *layer_param);
@@ -19,7 +19,7 @@ layer represents a set of functions implementing an interface, with 5 possible c
 	int fail(knot_layer_t *ctx, knot_pkt_t *pkt);
 ```
 
-An good example of the layer is a [query processor](../../knot/nameserver/process_query.c), where, to give you an example,
+A good example of the layer is a [query processor](../../knot/nameserver/process_query.c), where, to give you an example,
 an action `consume` represents query-parsing step, `produce` represents answer generator and `fail` an error response generator.
 
 *Note that*, a layer does not assume anything about the driver, but may enforce call order by requiring the context to be in a specific
@@ -66,7 +66,7 @@ A requestor is a specific state-machine that in general:
 2. sends the query and receives response
 3. consumes the response by passing it to the `consume` overlay action
 
-The query may not always be produced, and the I/O or `consume` action may fail, 
+The query may not always be produced, and the I/O or `consume` action may fail,
 so we get a state machine roughly like this:
 
 ![Requestor state machine](doc/requestor.png)
@@ -100,7 +100,8 @@ static int dnstrack_fail(knot_layer_t *ctx, knot_pkt_t *pkt)
 	char qname[KNOT_DNAME_MAXLEN];
 	knot_dname_to_str(qname, knot_pkt_qname(pkt), sizeof(qname));
 	printf("=> answer to '%s', rcode: %d\n",
-	       qname, knot_wire_get_rcode(pkt->wire));	
+	       qname, knot_wire_get_rcode(pkt->wire));
+	return KNOT_STATE_DONE;
 }
 
 /*! Module implementation. */

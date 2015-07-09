@@ -19,11 +19,10 @@
 #include <sys/time.h>
 
 #include "libknot/processing/overlay.h"
+#include "libknot/rrtype/tsig.h"
 #include "libknot/internal/lists.h"
 #include "libknot/internal/sockaddr.h"
 #include "libknot/internal/mempattern.h"
-
-struct knot_request;
 
 /* Requestor flags. */
 enum {
@@ -34,14 +33,14 @@ enum {
  *
  *  Requestor holds a FIFO of pending queries.
  */
-struct knot_requestor {
+typedef struct knot_requestor {
 	mm_ctx_t *mm;            /*!< Memory context. */
-	list_t pending;               /*!< Pending requests (FIFO). */
-	struct knot_overlay overlay;  /*!< Response processing overlay. */
-};
+	list_t pending;          /*!< Pending requests (FIFO). */
+	knot_overlay_t overlay;  /*!< Response processing overlay. */
+} knot_requestor_t;
 
 /*! \brief Request data (socket, payload, response, TSIG and endpoints). */
-struct knot_request {
+typedef struct knot_request {
 	node_t node;
 	int fd;
 	unsigned flags;
@@ -49,7 +48,7 @@ struct knot_request {
 	knot_sign_context_t sign;
 	knot_pkt_t *query;
 	knot_pkt_t *resp;
-};
+} knot_request_t;
 
 /*!
  * \brief Make request out of endpoints and query.
@@ -62,21 +61,19 @@ struct knot_request {
  *
  * \return Prepared request or NULL in case of error.
  */
-struct knot_request *knot_request_make(mm_ctx_t *mm,
-                                       const struct sockaddr *dst,
-                                       const struct sockaddr *src,
-                                       knot_pkt_t *query,
-                                       unsigned flags);
+knot_request_t *knot_request_make(mm_ctx_t *mm,
+                                  const struct sockaddr *dst,
+                                  const struct sockaddr *src,
+                                  knot_pkt_t *query,
+                                  unsigned flags);
 
 /*!
  * \brief Free request and associated data.
  *
  * \param mm      Memory context.
  * \param request Freed request.
- *
- * \return Prepared request or NULL in case of error.
  */
-int knot_request_free(mm_ctx_t *mm, struct knot_request *request);
+void knot_request_free(mm_ctx_t *mm, knot_request_t *request);
 
 /*!
  * \brief Initialize requestor structure.
@@ -84,21 +81,21 @@ int knot_request_free(mm_ctx_t *mm, struct knot_request *request);
  * \param requestor Requestor instance.
  * \param mm        Memory context.
  */
-void knot_requestor_init(struct knot_requestor *requestor, mm_ctx_t *mm);
+void knot_requestor_init(knot_requestor_t *requestor, mm_ctx_t *mm);
 
 /*!
  * \brief Clear the requestor structure and close pending queries.
  *
  * \param requestor Requestor instance.
  */
-void knot_requestor_clear(struct knot_requestor *requestor);
+void knot_requestor_clear(knot_requestor_t *requestor);
 
 /*!
  * \brief Return true if there are no pending queries.
  *
  * \param requestor Requestor instance.
  */
-bool knot_requestor_finished(struct knot_requestor *requestor);
+bool knot_requestor_finished(knot_requestor_t *requestor);
 
 /*!
  * \brief Add a processing layer.
@@ -107,7 +104,7 @@ bool knot_requestor_finished(struct knot_requestor *requestor);
  * \param proc      Response processing module.
  * \param param     Processing module parameters.
  */
-int knot_requestor_overlay(struct knot_requestor *requestor,
+int knot_requestor_overlay(knot_requestor_t *requestor,
                            const knot_layer_api_t *proc, void *param);
 
 /*!
@@ -121,8 +118,7 @@ int knot_requestor_overlay(struct knot_requestor *requestor,
  *
  * \return KNOT_EOK or error
  */
-int knot_requestor_enqueue(struct knot_requestor *requestor,
-                           struct knot_request *request);
+int knot_requestor_enqueue(knot_requestor_t *requestor, knot_request_t *request);
 
 /*!
  * \brief Close first pending request.
@@ -131,7 +127,7 @@ int knot_requestor_enqueue(struct knot_requestor *requestor,
  *
  * \return KNOT_EOK or error
  */
-int knot_requestor_dequeue(struct knot_requestor *requestor);
+int knot_requestor_dequeue(knot_requestor_t *requestor);
 
 /*!
  * \brief Execute next pending query (FIFO).
@@ -141,5 +137,4 @@ int knot_requestor_dequeue(struct knot_requestor *requestor);
  *
  * \return KNOT_EOK or error
  */
-int knot_requestor_exec(struct knot_requestor *requestor,
-                        struct timeval *timeout);
+int knot_requestor_exec(knot_requestor_t *requestor, struct timeval *timeout);

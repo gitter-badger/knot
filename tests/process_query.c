@@ -50,7 +50,7 @@ static void exec_query(knot_layer_t *query_ctx, const char *name,
 
 	/* Input packet. */
 	knot_pkt_parse(query, 0);
-	int state = knot_layer_consume(query_ctx, query);
+	knot_layer_state_t state = knot_layer_consume(query_ctx, query);
 
 	ok(state & (KNOT_STATE_PRODUCE|KNOT_STATE_FAIL), "ns: process %s query", name);
 
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
 	knot_pkt_put_question(query, ROOT_DNAME, KNOT_CLASS_IN, KNOT_RRTYPE_SOA);
 	size_t orig_query_size = query->size;
 	query->size = KNOT_WIRE_HEADER_SIZE - 1;
-	int state = knot_layer_consume(&proc, query);
+	knot_layer_state_t state = knot_layer_consume(&proc, query);
 	ok(state == KNOT_STATE_NOOP, "ns: IN/less-than-header query ignored");
 	query->size = orig_query_size;
 

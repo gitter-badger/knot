@@ -76,7 +76,7 @@ int main(int argc, char *argv[])
 	knot_pkt_put_question(buf, (const uint8_t *)"", 0, 0);
 
 	/* Initialize overlay. */
-	struct knot_overlay overlay;
+	knot_overlay_t overlay;
 	knot_overlay_init(&overlay, &mm);
 
 	/* Add FSMs. */
@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
 	knot_overlay_add(&overlay, &fsm2_module, NULL);
 
 	/* Run the sequence. */
-	int state = knot_overlay_consume(&overlay, buf);
+	knot_layer_state_t state = knot_overlay_consume(&overlay, buf);
 	is_int(KNOT_STATE_DONE, state, "overlay: in");
 	state = knot_overlay_reset(&overlay);
 	is_int(KNOT_STATE_PRODUCE, state, "overlay: reset");
