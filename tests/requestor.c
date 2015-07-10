@@ -33,8 +33,7 @@ static int out(knot_layer_t *ctx, knot_pkt_t *pkt) { return KNOT_STATE_CONSUME; 
 
 /*! \brief Dummy answer processing module. */
 const knot_layer_api_t dummy_module = {
-        &begin, &reset, &finish,
-        &in, &out, NULL
+	&begin, &reset, &finish, &in, &out
 };
 
 static void* responder_thread(void *arg)

@@ -8,7 +8,7 @@ data processors and state machines driving them.
 
 ### layer.h
 
-layer represents a set of functions implementing an interface, with 6 possible callbacks:
+layer represents a set of functions implementing an interface, with 5 possible callbacks:
 
 ```c
 	int begin(knot_layer_t *ctx, void *layer_param);
@@ -16,11 +16,10 @@ layer represents a set of functions implementing an interface, with 6 possible c
 	int finish(knot_layer_t *ctx);
 	int consume(knot_layer_t *ctx, knot_pkt_t *pkt);
 	int produce(knot_layer_t *ctx, knot_pkt_t *pkt);
-	int fail(knot_layer_t *ctx, knot_pkt_t *pkt);
 ```
 
 A good example of the layer is a [query processor](../../knot/nameserver/process_query.c), where, to give you an example,
-an action `consume` represents query-parsing step, `produce` represents answer generator and `fail` an error response generator.
+an action `consume` represents query-parsing step and `produce` represents answer generator.
 
 *Note that*, a layer does not assume anything about the driver, but may enforce call order by requiring the context to be in a specific
 processing state, see `knot_layer_t.state`, and move the driver to next desired state.
@@ -94,26 +93,14 @@ static int dnstrack_query(knot_layer_t *ctx, knot_pkt_t *pkt)
 	return ctx->state; /* Pass-through */
 }
 
-/*! Track error responses. */
-static int dnstrack_fail(knot_layer_t *ctx, knot_pkt_t *pkt)
-{
-	char qname[KNOT_DNAME_MAXLEN];
-	knot_dname_to_str(qname, knot_pkt_qname(pkt), sizeof(qname));
-	printf("=> answer to '%s', rcode: %d\n",
-	       qname, knot_wire_get_rcode(pkt->wire));
-	return KNOT_STATE_DONE;
-}
-
 /*! Module implementation. */
 const knot_layer_api_t *dnstrack_layer(void)
 {
 	static const knot_layer_api_t api = {
-		.consume = &dnstrack_query,
-		.fail    = &dnstrack_fail
+		.consume = &dnstrack_query
 	};
 	return &api;
 }
-
 ```
 
 Now you can try it in an overlay. The following is a simplified snippet from the UDP query processor,

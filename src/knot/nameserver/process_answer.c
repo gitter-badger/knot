@@ -162,7 +162,7 @@ const knot_layer_api_t *process_answer_layer(void)
 		.reset = &process_answer_reset,
 		.finish = &process_answer_finish,
 		.consume = &process_answer,
-		.produce = &prepare_query,
+		.produce = &prepare_query
 	};
 	return &api;
 }

@@ -55,10 +55,10 @@ static int fsm2_finish(knot_layer_t *ctx)
 transition(KNOT_STATE_DONE, KNOT_STATE_NOOP)
 
 const knot_layer_api_t fsm1_module = {
-        &fsm1_begin, &fsm1_reset, &fsm1_finish, &fsm1_in, &fsm1_out, &fsm1_out
+        &fsm1_begin, &fsm1_reset, &fsm1_finish, &fsm1_in, &fsm1_out
 };
 const knot_layer_api_t fsm2_module = {
-        &fsm2_begin, &fsm2_reset, &fsm2_finish, &fsm2_in, &fsm2_out, &fsm2_out
+        &fsm2_begin, &fsm2_reset, &fsm2_finish, &fsm2_in, &fsm2_out
 };
 
 /* Test implementations. */

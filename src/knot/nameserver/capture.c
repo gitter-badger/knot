@@ -53,8 +53,7 @@ static const knot_layer_api_t CAPTURE_LAYER = {
 	&reset,
 	&finish,
 	&capture,
-	&prepare_query,
-	NULL
+	&prepare_query
 };
 
 const knot_layer_api_t *capture_get_module(void)

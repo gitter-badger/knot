@@ -59,7 +59,6 @@ struct knot_layer_api {
 	int (*finish)(knot_layer_t *ctx);
 	int (*consume)(knot_layer_t *ctx, knot_pkt_t *pkt);
 	int (*produce)(knot_layer_t *ctx, knot_pkt_t *pkt);
-	int (*fail)(knot_layer_t *ctx, knot_pkt_t *pkt);
 };
 
 /*!

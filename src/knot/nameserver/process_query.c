@@ -367,7 +367,7 @@ static int set_rcode_to_packet(knot_pkt_t *pkt, struct query_data *qdata)
 	return ret;
 }
 
-static int process_query_err(knot_layer_t *ctx, knot_pkt_t *pkt)
+static void process_query_err(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	assert(pkt && ctx);
 	struct query_data *qdata = QUERY_DATA(ctx);
@@ -387,8 +387,7 @@ static int process_query_err(knot_layer_t *ctx, knot_pkt_t *pkt)
 	}
 
 	/* Put OPT RR to the additional section. */
-	int ret = answer_edns_reserve(pkt, qdata);
-	if (ret == KNOT_EOK) {
+	if (answer_edns_reserve(pkt, qdata) == KNOT_EOK) {
 		(void) answer_edns_put(pkt, qdata);
 	}
 
@@ -397,8 +396,6 @@ static int process_query_err(knot_layer_t *ctx, knot_pkt_t *pkt)
 
 	/* Transaction security (if applicable). */
 	(void) process_query_sign_response(pkt, qdata);
-
-	return KNOT_STATE_DONE;
 }
 
 /*!
@@ -429,9 +426,7 @@ static int ratelimit_apply(int state, knot_pkt_t *pkt, knot_layer_t *ctx)
 	conf_val_t val = conf_get(conf(), C_SRV, C_RATE_LIMIT_SLIP);
 	if (rrl_slip_roll(conf_int(&val))) {
 		/* Answer slips. */
-		if (process_query_err(ctx, pkt) != KNOT_EOK) {
-			return KNOT_STATE_FAIL;
-		}
+		process_query_err(ctx, pkt);
 		knot_wire_set_tc(pkt->wire);
 	} else {
 		/* Drop answer. */
@@ -447,6 +442,12 @@ static int process_query_out(knot_layer_t *ctx, knot_pkt_t *pkt)
 	struct query_data *qdata = QUERY_DATA(ctx);
 	struct query_plan *plan = conf()->query_plan;
 	struct query_step *step = NULL;
+
+	/* Check for failed state. */
+	if (ctx->state == KNOT_STATE_FAIL) {
+		process_query_err(ctx, pkt);
+		return KNOT_STATE_DONE;
+	}
 
 	rcu_read_lock();
 
@@ -717,8 +718,7 @@ const knot_layer_api_t *process_query_layer(void)
 		.reset   = &process_query_reset,
 		.finish  = &process_query_finish,
 		.consume = &process_query_in,
-		.produce = &process_query_out,
-		.fail    = &process_query_err
+		.produce = &process_query_out
 	};
 	return &api;
 }

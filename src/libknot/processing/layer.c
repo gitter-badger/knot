@@ -64,11 +64,7 @@ knot_layer_state_t knot_layer_consume(knot_layer_t *ctx, knot_pkt_t *pkt)
 _public_
 knot_layer_state_t knot_layer_produce(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
-	if (ctx->state != KNOT_STATE_FAIL) {
-		LAYER_CALL(ctx, produce, pkt);
-	} else {
-		LAYER_CALL(ctx, fail, pkt);
-	}
+	LAYER_CALL(ctx, produce, pkt);
 
 	return ctx->state;
 }
