@@ -19,24 +19,24 @@
 #include "knot/server/udp-handler.h"
 
 /* State-less packet capture, only incoming data is accepted. */
-static int reset(knot_layer_t *ctx)  { return KNOT_STATE_PRODUCE; }
-static int finish(knot_layer_t *ctx) { return KNOT_STATE_NOOP; }
+static knot_layer_state_t reset(knot_layer_t *ctx)  { return KNOT_STATE_PRODUCE; }
+static knot_layer_state_t finish(knot_layer_t *ctx) { return KNOT_STATE_NOOP; }
 
 /* Set capture parameters (sink). */
-static int begin(knot_layer_t *ctx, void *module_param)
+static knot_layer_state_t begin(knot_layer_t *ctx, void *module_param)
 {
 	ctx->data = module_param;
 	return reset(ctx);
 }
 
-static int prepare_query(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t prepare_query(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	/* \note Don't touch the query, expect answer. */
 	return KNOT_STATE_CONSUME;
 }
 
 /* Forward packet. */
-static int capture(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t capture(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	assert(pkt && ctx);
 	struct capture_param *param = ctx->data;

@@ -36,7 +36,7 @@ static void query_data_init(knot_layer_t *ctx, void *module_param)
 	init_list(&data->rrsigs);
 }
 
-static int process_query_begin(knot_layer_t *ctx, void *module_param)
+static knot_layer_state_t process_query_begin(knot_layer_t *ctx, void *module_param)
 {
 	/* Initialize context. */
 	assert(ctx);
@@ -49,7 +49,7 @@ static int process_query_begin(knot_layer_t *ctx, void *module_param)
 	return KNOT_STATE_CONSUME;
 }
 
-static int process_query_reset(knot_layer_t *ctx)
+static knot_layer_state_t process_query_reset(knot_layer_t *ctx)
 {
 	assert(ctx);
 	struct query_data *qdata = QUERY_DATA(ctx);
@@ -72,7 +72,7 @@ static int process_query_reset(knot_layer_t *ctx)
 	return KNOT_STATE_CONSUME;
 }
 
-static int process_query_finish(knot_layer_t *ctx)
+static knot_layer_state_t process_query_finish(knot_layer_t *ctx)
 {
 	process_query_reset(ctx);
 	mm_free(ctx->mm, ctx->data);
@@ -81,7 +81,7 @@ static int process_query_finish(knot_layer_t *ctx)
 	return KNOT_STATE_NOOP;
 }
 
-static int process_query_in(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t process_query_in(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	assert(pkt && ctx);
 	struct query_data *qdata = QUERY_DATA(ctx);
@@ -436,7 +436,7 @@ static int ratelimit_apply(int state, knot_pkt_t *pkt, knot_layer_t *ctx)
 	return KNOT_STATE_DONE;
 }
 
-static int process_query_out(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t process_query_out(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	assert(pkt && ctx);
 	struct query_data *qdata = QUERY_DATA(ctx);

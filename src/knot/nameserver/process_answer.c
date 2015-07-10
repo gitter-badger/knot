@@ -46,7 +46,7 @@ static bool is_answer_to_query(const knot_pkt_t *query, knot_pkt_t *answer)
 	return knot_wire_get_id(query->wire) == knot_wire_get_id(answer->wire);
 }
 
-static int process_answer_begin(knot_layer_t *ctx, void *module_param)
+static knot_layer_state_t process_answer_begin(knot_layer_t *ctx, void *module_param)
 {
 	/* Initialize context. */
 	assert(ctx);
@@ -59,7 +59,7 @@ static int process_answer_begin(knot_layer_t *ctx, void *module_param)
 	return KNOT_STATE_PRODUCE;
 }
 
-static int process_answer_reset(knot_layer_t *ctx)
+static knot_layer_state_t process_answer_reset(knot_layer_t *ctx)
 {
 	assert(ctx);
 	struct answer_data *data = ANSWER_DATA(ctx);
@@ -79,7 +79,7 @@ static int process_answer_reset(knot_layer_t *ctx)
 	return KNOT_STATE_PRODUCE;
 }
 
-static int process_answer_finish(knot_layer_t *ctx)
+static knot_layer_state_t process_answer_finish(knot_layer_t *ctx)
 {
 	process_answer_reset(ctx);
 	mm_free(ctx->mm, ctx->data);
@@ -95,7 +95,7 @@ static int process_answer_finish(knot_layer_t *ctx)
 		return ret; \
 	}
 
-static int process_answer(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t process_answer(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	assert(pkt && ctx);
 	struct answer_data *data = ANSWER_DATA(ctx);
@@ -148,7 +148,7 @@ static int process_answer(knot_layer_t *ctx, knot_pkt_t *pkt)
 }
 #undef ANSWER_REQUIRES
 
-static int prepare_query(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t prepare_query(knot_layer_t *ctx, knot_pkt_t *pkt)
 {
 	/* \note Don't touch the query, expect answer. */
 	return KNOT_STATE_CONSUME;

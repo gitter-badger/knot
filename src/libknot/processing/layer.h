@@ -54,11 +54,11 @@ typedef struct {
 
 /*! \brief Packet processing module API. */
 struct knot_layer_api {
-	int (*begin)(knot_layer_t *ctx, void *module_param);
-	int (*reset)(knot_layer_t *ctx);
-	int (*finish)(knot_layer_t *ctx);
-	int (*consume)(knot_layer_t *ctx, knot_pkt_t *pkt);
-	int (*produce)(knot_layer_t *ctx, knot_pkt_t *pkt);
+	knot_layer_state_t (*begin)(knot_layer_t *ctx, void *module_param);
+	knot_layer_state_t (*reset)(knot_layer_t *ctx);
+	knot_layer_state_t (*finish)(knot_layer_t *ctx);
+	knot_layer_state_t (*consume)(knot_layer_t *ctx, knot_pkt_t *pkt);
+	knot_layer_state_t (*produce)(knot_layer_t *ctx, knot_pkt_t *pkt);
 };
 
 /*!

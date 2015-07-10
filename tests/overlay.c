@@ -32,26 +32,26 @@
 	} \
 }
 
-static int fsm1_begin(knot_layer_t *ctx, void *param)
+static knot_layer_state_t fsm1_begin(knot_layer_t *ctx, void *param)
 transition(KNOT_STATE_NOOP, KNOT_STATE_NOOP)
-static int fsm1_in(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t fsm1_in(knot_layer_t *ctx, knot_pkt_t *pkt)
 transition(KNOT_STATE_CONSUME, KNOT_STATE_CONSUME)
-static int fsm1_reset(knot_layer_t *ctx)
+static knot_layer_state_t fsm1_reset(knot_layer_t *ctx)
 transition(KNOT_STATE_DONE, KNOT_STATE_DONE)
-static int fsm1_out(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t fsm1_out(knot_layer_t *ctx, knot_pkt_t *pkt)
 transition(KNOT_STATE_PRODUCE, KNOT_STATE_FAIL)
-static int fsm1_finish(knot_layer_t *ctx)
+static knot_layer_state_t fsm1_finish(knot_layer_t *ctx)
 transition(KNOT_STATE_DONE, KNOT_STATE_DONE)
 
-static int fsm2_begin(knot_layer_t *ctx, void *param)
+static knot_layer_state_t fsm2_begin(knot_layer_t *ctx, void *param)
 transition(KNOT_STATE_NOOP, KNOT_STATE_CONSUME)
-static int fsm2_in(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t fsm2_in(knot_layer_t *ctx, knot_pkt_t *pkt)
 transition(KNOT_STATE_CONSUME, KNOT_STATE_DONE)
-static int fsm2_reset(knot_layer_t *ctx)
+static knot_layer_state_t fsm2_reset(knot_layer_t *ctx)
 transition(KNOT_STATE_DONE, KNOT_STATE_PRODUCE)
-static int fsm2_out(knot_layer_t *ctx, knot_pkt_t *pkt)
+static knot_layer_state_t fsm2_out(knot_layer_t *ctx, knot_pkt_t *pkt)
 transition(KNOT_STATE_FAIL, KNOT_STATE_DONE)
-static int fsm2_finish(knot_layer_t *ctx)
+static knot_layer_state_t fsm2_finish(knot_layer_t *ctx)
 transition(KNOT_STATE_DONE, KNOT_STATE_NOOP)
 
 const knot_layer_api_t fsm1_module = {
