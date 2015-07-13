@@ -933,9 +933,8 @@ static void wire_loc_to_str(rrset_dump_params_t *p)
 {
 	int    ret;
 
-	wire_ctx_t wire = wire_ctx_init_const(p->in, p->in_max);
 	// Read values.
-
+	wire_ctx_t wire = wire_ctx_init_const(p->in, p->in_max);
 	uint8_t version = wire_ctx_read_u8(&wire);
 	uint8_t size_w = wire_ctx_read_u8(&wire);
 	uint8_t hpre_w = wire_ctx_read_u8(&wire);
