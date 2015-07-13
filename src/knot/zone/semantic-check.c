@@ -241,7 +241,7 @@ int err_handler_handle_error(err_handler_t *handler, const zone_contents_t *zone
  *
  * \retval KNOT_EOK when rdata are OK.
  * \retval ZC_ERR_RRSIG_RDATA_DNSKEY_OWNER when rdata are not OK.
- * \retval KNOT_SPACE when bad read
+ * \retval KNOT_EFEWDATA when bad read
  */
 static int check_dnskey_rdata(const knot_rrset_t *rrset, size_t rdata_pos)
 {

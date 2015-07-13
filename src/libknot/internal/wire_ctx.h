@@ -87,8 +87,11 @@ static inline void wire_ctx_clear(wire_ctx_t *ctx)
 static inline void wire_ctx_set_offset(wire_ctx_t *ctx, size_t offset)
 {
 	assert(ctx);
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (offset > ctx->size) {
-		ctx->error = KNOT_ESPACE;
+		ctx->error = KNOT_ERANGE;
 		return;
 	}
 	ctx->position = ctx->wire + offset;
@@ -102,11 +105,14 @@ static inline void wire_ctx_set_offset(wire_ctx_t *ctx, size_t offset)
 static inline void wire_ctx_skip(wire_ctx_t *ctx, ssize_t offset)
 {
 	assert(ctx);
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	ctx->position += offset;
 	// check for scope
 	if (ctx->position < ctx->wire || ctx->position > ctx->wire + ctx->size) {
 		ctx->position -= offset; // revert position
-		ctx->error = KNOT_ESPACE;
+		ctx->error = KNOT_ERANGE;
 	}
 }
 
@@ -144,6 +150,9 @@ static inline uint8_t wire_ctx_read_u8(wire_ctx_t *ctx)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return 0;
+	}
 	if (!wire_ctx_can_read(ctx, sizeof(uint8_t))) {
 		ctx->error = KNOT_EFEWDATA;
 		return 0;
@@ -159,6 +168,9 @@ static inline uint16_t wire_ctx_read_u16(wire_ctx_t *ctx)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return 0;
+	}
 	if (!wire_ctx_can_read(ctx, sizeof(uint16_t))) {
 		ctx->error = KNOT_EFEWDATA;
 		return 0;
@@ -174,6 +186,9 @@ static inline uint32_t wire_ctx_read_u32(wire_ctx_t *ctx)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return 0;
+	}
 	if (!wire_ctx_can_read(ctx, sizeof(uint32_t))) {
 		ctx->error = KNOT_EFEWDATA;
 		return 0;
@@ -189,6 +204,9 @@ static inline uint64_t wire_ctx_read_u48(wire_ctx_t *ctx)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return 0;
+	}
 	if (!wire_ctx_can_read(ctx, 6)) {
 		ctx->error = KNOT_EFEWDATA;
 		return 0;
@@ -203,6 +221,9 @@ static inline uint64_t wire_ctx_read_u64(wire_ctx_t *ctx)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return 0;
+	}
 	if (!wire_ctx_can_read(ctx, sizeof(uint64_t))) {
 		ctx->error = KNOT_EFEWDATA;
 		return 0;
@@ -219,6 +240,9 @@ static inline void wire_ctx_read(wire_ctx_t *ctx, uint8_t *data, size_t size)
 	assert(ctx);
 	assert(data);
 
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (!wire_ctx_can_read(ctx, size)) {
 		ctx->error = KNOT_EFEWDATA;
 		return;
@@ -239,6 +263,9 @@ static inline void wire_ctx_write_u8(wire_ctx_t *ctx, uint8_t value)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (!wire_ctx_can_write(ctx, sizeof(uint8_t))) {
 		ctx->error = KNOT_ESPACE;
 		return;
@@ -252,6 +279,9 @@ static inline void wire_ctx_write_u16(wire_ctx_t *ctx, uint16_t value)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (!wire_ctx_can_write(ctx, sizeof(uint16_t))) {
 		ctx->error = KNOT_ESPACE;
 		return;
@@ -265,6 +295,9 @@ static inline void wire_ctx_write_u32(wire_ctx_t *ctx, uint32_t value)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (!wire_ctx_can_write(ctx, sizeof(uint32_t))) {
 		ctx->error = KNOT_ESPACE;
 		return;
@@ -278,6 +311,9 @@ static inline void wire_ctx_write_u48(wire_ctx_t *ctx, uint64_t value)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (!wire_ctx_can_write(ctx, 6)) {
 		ctx->error = KNOT_ESPACE;
 		return;
@@ -292,6 +328,9 @@ static inline void wire_ctx_write_u64(wire_ctx_t *ctx, uint64_t value)
 {
 	assert(ctx);
 
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (!wire_ctx_can_write(ctx, sizeof(uint64_t))) {
 		ctx->error = KNOT_ESPACE;
 		return;
@@ -317,7 +356,9 @@ static inline void wire_ctx_write(wire_ctx_t *ctx, const uint8_t *data, size_t s
 		return;
 	}
 	assert(data);
-
+	if (ctx->error != KNOT_EOK) {
+		return;
+	}
 	if (!wire_ctx_can_write(ctx, size)) {
 		ctx->error = KNOT_ESPACE;
 		return;
