@@ -505,7 +505,7 @@ int knot_pkt_put_question(knot_pkt_t *pkt, const knot_dname_t *qname, uint16_t q
 
 	/* Update question count and sizes. */
 	knot_wire_set_qdcount(pkt->wire, 1);
-	pkt->size = wire_ctx_tell(&wire);
+	pkt->size = wire_ctx_offset(&wire);
 	pkt->qname_size = qname_len;
 
 	/* Start writing ANSWER. */

@@ -82,10 +82,10 @@ static size_t rrsig_rdata_header_size(const dnssec_key_t *key)
  * \param sig_expires   Timestamp of signature expiration.
  */
 static int rrsig_write_rdata(uint8_t *rdata, size_t rdata_len,
-			     const dnssec_key_t *key,
-			     uint16_t covered_type, uint8_t owner_labels,
-			     uint32_t owner_ttl,  uint32_t sig_incepted,
-			     uint32_t sig_expires)
+                             const dnssec_key_t *key,
+                             uint16_t covered_type, uint8_t owner_labels,
+                             uint32_t owner_ttl,  uint32_t sig_incepted,
+                             uint32_t sig_expires)
 {
 	if (!rdata || !key || sig_incepted >= sig_expires) {
 		return KNOT_EINVAL;
@@ -105,7 +105,7 @@ static int rrsig_write_rdata(uint8_t *rdata, size_t rdata_len,
 	wire_ctx_write_u32(&wire, sig_incepted);	// signature inception
 	wire_ctx_write_u16(&wire, keytag);		// key fingerprint
 
-	assert(wire_ctx_tell(&wire) == RRSIG_RDATA_SIGNER_OFFSET);
+	assert(wire_ctx_offset(&wire) == RRSIG_RDATA_SIGNER_OFFSET);
 
 	assert(signer);
 	wire_ctx_write(&wire, signer, knot_dname_size(signer));	// signer

@@ -210,9 +210,9 @@ static size_t nsec3_rdata_size(const knot_nsec3_params_t *params,
  * \note Content of next hash field is not changed.
  */
 static int nsec3_fill_rdata(uint8_t *rdata, size_t rdata_len,
-                             const knot_nsec3_params_t *params,
-                             const dnssec_nsec_bitmap_t *rr_types,
-                             const uint8_t *next_hashed, uint32_t ttl)
+                            const knot_nsec3_params_t *params,
+                            const dnssec_nsec_bitmap_t *rr_types,
+                            const uint8_t *next_hashed, uint32_t ttl)
 {
 	assert(rdata);
 	assert(params);

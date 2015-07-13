@@ -112,7 +112,7 @@ uint8_t knot_edns_get_ext_rcode(const knot_rrset_t *opt_rr)
 	wire_ctx_t w = wire_ctx_init((uint8_t *) &ttl, sizeof(ttl));
 	// TTL is stored in machine byte order. Convert it to wire order first.
 	wire_ctx_write_u32(&w, knot_rrset_ttl(opt_rr));
-	wire_ctx_setpos(&w, EDNS_OFFSET_RCODE);
+	wire_ctx_set_offset(&w, EDNS_OFFSET_RCODE);
 	// return zero if error occurs
 	return wire_ctx_read_u8(&w);
 }
@@ -126,10 +126,10 @@ static void set_value_to_ttl(knot_rrset_t *opt_rr, size_t offset, uint8_t value)
 	// TTL is stored in machine byte order. Convert it to wire order first.
 	wire_ctx_write_u32(&w, knot_rrset_ttl(opt_rr));
 	// Set the Extended RCODE in the converted TTL
-	wire_ctx_setpos(&w, offset);
+	wire_ctx_set_offset(&w, offset);
 	wire_ctx_write_u8(&w, value);
 	// Convert it back to machine byte order
-	wire_ctx_setpos(&w, 0);
+	wire_ctx_set_offset(&w, 0);
 	uint32_t ttl_local = wire_ctx_read_u32(&w);
 	// Store the TTL to the RDATA
 	knot_rdata_set_ttl(knot_rdataset_at(&opt_rr->rrs, 0), ttl_local);
@@ -152,7 +152,7 @@ uint8_t knot_edns_get_version(const knot_rrset_t *opt_rr)
 	wire_ctx_t w = wire_ctx_init((uint8_t*) &ttl, sizeof(ttl));
 	// TTL is stored in machine byte order. Convert it to wire order first.
 	wire_ctx_write_u32(&w, knot_rrset_ttl(opt_rr));
-	wire_ctx_setpos(&w, EDNS_OFFSET_VERSION);
+	wire_ctx_set_offset(&w, EDNS_OFFSET_VERSION);
 	// don't check for error, no way to return it
 	return wire_ctx_read_u8(&w);
 }
@@ -341,7 +341,7 @@ int knot_edns_client_subnet_create(const knot_addr_family_t family,
 		w_data.position[-1] &= 0xFF << (8 - modulo);
 	}
 
-	*data_len = wire_ctx_tell(&w_data);
+	*data_len = wire_ctx_offset(&w_data);
 
 	return KNOT_EOK;
 }

@@ -21,7 +21,6 @@
 #include <netinet/in.h>
 #include <stdio.h>
 
-#define UNIT_TESTING	// wraps assertions
 #include "libknot/internal/wire_ctx.h"
 
 
@@ -35,7 +34,7 @@ void write_to_limit(void **state)
 
 	assert_int_equal(data, ntohl(buf));
 
-	wire_ctx_setpos(&wire, 0);
+	wire_ctx_set_offset(&wire, 0);
 	assert_ptr_equal(wire.position, &buf);
 
 	assert_int_equal(wire.error, KNOT_EOK);
@@ -48,7 +47,7 @@ void write_to_limit(void **state)
 
 void read_to_limit(void **state)
 {
-	uint32_t buf=ntohl(0x002a0056);
+	uint32_t buf = ntohl(0x002a0056);
 	wire_ctx_t wire = wire_ctx_init((uint8_t*)&buf, sizeof(buf));
 
 	uint32_t data = 0;
@@ -58,7 +57,7 @@ void read_to_limit(void **state)
 
 	assert_int_equal(0x002a0056, data);
 
-	wire_ctx_setpos(&wire, 0);
+	wire_ctx_set_offset(&wire, 0);
 
 	assert_int_equal(0x002a, wire_ctx_read_u16(&wire));
 	assert_int_equal(0x0056, wire_ctx_read_u16(&wire));
@@ -77,41 +76,12 @@ void read_to_limit(void **state)
 
 void write_readonly(void **state)
 {
-	const uint32_t buf=42;
+	const uint32_t buf = 42;
 	wire_ctx_t wire = wire_ctx_init_const((uint8_t*)&buf, sizeof(buf));
 
-	expect_assert_failure(wire_ctx_write_u8(&wire, 1));
-}
-
-void assert_check(void **state)
-{
-	wire_ctx_t wire;
-	uint8_t buf[10];
-	expect_assert_failure(wire_ctx_init(NULL, 0));
-	expect_assert_failure(wire_ctx_init_const(NULL, 0));
-	expect_assert_failure(wire_ctx_init_rdata(NULL));
-	expect_assert_failure(wire_ctx_available(NULL));
-	expect_assert_failure(wire_ctx_tell(NULL));
-	expect_assert_failure(wire_ctx_setpos(NULL, 0));
-	expect_assert_failure(wire_ctx_skip(NULL, 0));
-	expect_assert_failure(wire_ctx_can_write(NULL, 0));
-	expect_assert_failure(wire_ctx_clear(NULL));
-	expect_assert_failure(wire_ctx_read_u8(NULL));
-	expect_assert_failure(wire_ctx_read_u16(NULL));
-	expect_assert_failure(wire_ctx_read_u32(NULL));
-	expect_assert_failure(wire_ctx_read(NULL, buf, 5));
-	expect_assert_failure(wire_ctx_read(&wire, NULL, 0));
-	expect_assert_failure(wire_ctx_read(&wire, NULL, 5));
-	expect_assert_failure(wire_ctx_write_u8(NULL, 0));
-	expect_assert_failure(wire_ctx_write_u16(NULL, 0));
-	expect_assert_failure(wire_ctx_write_u32(NULL, 0));
-	expect_assert_failure(wire_ctx_write_u48(NULL, 0));
-	expect_assert_failure(wire_ctx_write_u64(NULL, 0));
-	expect_assert_failure(wire_ctx_write(NULL, buf, 5));
-	expect_assert_failure(wire_ctx_write(&wire, NULL, 5));
-
-	// no assert, can write NULL if size is zero
-	wire_ctx_write(&wire, NULL, 0);
+	wire_ctx_write_u8(&wire, 1);
+	assert_int_not_equal(wire.error, KNOT_EOK);
+	assert_int_equal(buf, 42);
 }
 
 void can_write(void **state)
@@ -127,7 +97,7 @@ void can_write(void **state)
 
 void write_over_limit(void **state)
 {
-	uint32_t buf=0;
+	uint32_t buf = 0;
 	wire_ctx_t wire = wire_ctx_init((uint8_t*)&buf, sizeof(buf));
 
 	// pos 0, write ok
@@ -161,9 +131,23 @@ void seek_before(void **state)
 	uint32_t buf;
 	wire_ctx_t wire = wire_ctx_init((uint8_t*)&buf, sizeof(buf));
 
-	wire_ctx_skip(&wire, -1);
-	assert_ptr_equal(wire.wire, wire.position);
-	assert_int_equal(0, wire_ctx_tell(&wire));
+	wire_ctx_skip(&wire, 1);
+	size_t position = wire_ctx_offset(&wire); // save current position (1)
+	wire_ctx_skip(&wire, -2);
+	assert_int_equal(position, wire_ctx_offset(&wire)); // no changes
+	assert_int_not_equal(KNOT_EOK, wire.error);
+}
+
+void seek_over(void **state)
+{
+	uint32_t buf;
+	wire_ctx_t wire = wire_ctx_init((uint8_t*)&buf, sizeof(buf));
+
+	wire_ctx_skip(&wire, 1);
+	size_t position = wire_ctx_offset(&wire); // save current position (1)
+	wire_ctx_skip(&wire, sizeof(buf));
+	assert_int_equal(position, wire_ctx_offset(&wire)); // no changes
+	assert_int_not_equal(KNOT_EOK, wire.error);
 }
 
 void available(void **state)
@@ -173,9 +157,10 @@ void available(void **state)
 
 	assert_int_equal(wire_ctx_available(&wire), sizeof(buf));
 
-	wire_ctx_skip(&wire, sizeof(buf)*sizeof(buf));
+	wire_ctx_skip(&wire, sizeof(buf));
 
 	assert_int_equal(wire_ctx_available(&wire), 0);
+	assert_int_equal(KNOT_EOK, wire.error);
 }
 
 int main(void)
@@ -187,9 +172,9 @@ int main(void)
 		cmocka_unit_test(read_to_limit),
 		cmocka_unit_test(write_readonly),
 		cmocka_unit_test(can_write),
-		cmocka_unit_test(assert_check),
 		cmocka_unit_test(write_over_limit),
 		cmocka_unit_test(seek_before),
+		cmocka_unit_test(seek_over),
 		cmocka_unit_test(available),
 	};
 
