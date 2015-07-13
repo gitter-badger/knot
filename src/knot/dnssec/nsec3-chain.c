@@ -238,6 +238,7 @@ static int nsec3_fill_rdata(uint8_t *rdata, size_t rdata_len,
 	}
 
 	dnssec_nsec_bitmap_write(rr_types, wire.position);  // RR types bit map
+	return KNOT_EOK;
 }
 
 /*!
@@ -267,10 +268,10 @@ static int create_nsec3_rrset(knot_rrset_t *rrset,
 
 	size_t rdata_size = nsec3_rdata_size(params, rr_types);
 	uint8_t rdata[rdata_size];
-	int r = nsec3_fill_rdata(rdata, rdata_size, params, rr_types,
-	                         next_hashed, ttl);
-	if (r != KNOT_EOK) {
-		return NULL;
+	int ret = nsec3_fill_rdata(rdata, rdata_size, params, rr_types,
+	                           next_hashed, ttl);
+	if (ret != KNOT_EOK) {
+		return ret;
 	}
 
 	return knot_rrset_add_rdata(rrset, rdata, rdata_size, ttl, NULL);
