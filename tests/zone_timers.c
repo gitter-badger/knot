@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
 	ret = knot_zonedb_insert(zone_db, zone_2);
 	assert(ret == KNOT_EOK);
 
-	namedb_t *db = NULL;
+	namedb_ctx_t *db = NULL;
 	ret = open_timers_db(dbid, &db);
 	ok(ret == KNOT_EOK && db != NULL, "zone timers: create");
 
