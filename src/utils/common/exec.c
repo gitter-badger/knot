@@ -235,18 +235,16 @@ static void print_section_opt(const knot_rrset_t *rr, const uint8_t rcode)
 	       knot_edns_get_payload(rr),
 	       ext_rcode_str);
 
-	knot_rdata_t *rdata = knot_rdataset_at(&rr->rrs, 0);
-	assert(rdata != NULL);
-
-	wire_ctx_t wire = wire_ctx_init_rdata(rdata);
+	wire_ctx_t wire = wire_ctx_init_rdata(knot_rdataset_at(&rr->rrs, 0));
 
 	while (wire_ctx_available(&wire) > KNOT_EDNS_OPTION_HDRLEN) {
 		uint16_t opt_code = wire_ctx_read_u16(&wire);
 		uint16_t opt_len = wire_ctx_read_u16(&wire);
 		uint8_t *opt_data = wire.position;
 
-		if (wire_ctx_available(&wire) < opt_len) {
-			break;
+		if (wire.error != KNOT_EOK) {
+			WARN("invalid OPT record data\n");
+			return;
 		}
 
 		switch (opt_code) {
@@ -268,6 +266,10 @@ static void print_section_opt(const knot_rrset_t *rr, const uint8_t rcode)
 		}
 
 		wire_ctx_skip(&wire, opt_len);
+	}
+
+	if (wire_ctx_available(&wire) > 0) {
+		WARN("invalid OPT record data\n");
 	}
 }
 
